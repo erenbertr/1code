@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { toast } from "sonner"
+import { AnimatePresence, motion } from "motion/react"
+import { AlignJustify } from "lucide-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
@@ -41,8 +43,8 @@ import { SettingsSidebar } from "../settings/settings-sidebar"
 // ============================================================================
 
 const SIDEBAR_MIN_WIDTH = 160
-const SIDEBAR_MAX_WIDTH = 300
-const SIDEBAR_ANIMATION_DURATION = 0
+const SIDEBAR_MAX_WIDTH = 400
+const SIDEBAR_ANIMATION_DURATION = 0.2
 const SIDEBAR_CLOSE_HOTKEY = "⌘\\"
 
 // ============================================================================
@@ -327,7 +329,7 @@ export function AgentsLayout() {
             <SettingsSidebar />
           ) : (
             <AgentsSidebar
-              desktopUser={desktopUser}
+              desktopUser={desktopUser ? { ...desktopUser, name: desktopUser.name ?? undefined } : null}
               onSignOut={handleSignOut}
               onToggleSidebar={handleCloseSidebar}
             />
@@ -335,7 +337,25 @@ export function AgentsLayout() {
         </ResizableSidebar>
 
           {/* Main Content */}
-          <div className="flex-1 overflow-hidden flex flex-col min-w-0">
+          <div className="flex-1 overflow-hidden flex flex-col min-w-0 relative">
+            {/* Floating sidebar toggle - visible when sidebar is closed */}
+            <AnimatePresence>
+              {!isMobile && !sidebarOpen && !isSettingsView && (
+                <motion.button
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => setSidebarOpen(true)}
+                  className="absolute top-2.5 left-2.5 z-50 h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors duration-150"
+                  aria-label="Open sidebar"
+                  // Account for macOS traffic light area in non-fullscreen
+                  style={isDesktop && !isFullscreen ? { top: "40px" } : undefined}
+                >
+                  <AlignJustify className="h-4 w-4" />
+                </motion.button>
+              )}
+            </AnimatePresence>
             <AgentsContent />
           </div>
         </div>

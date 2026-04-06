@@ -514,6 +514,14 @@ export const agentsSubChatsSidebarModeAtom = atomWithWindowStorage<
   "tabs" | "sidebar"
 >("agents-subchats-mode", "tabs", { getOnInit: true })
 
+// Track which workspaces are expanded in the unified sidebar tree
+// Persisted per-window so each Electron window has its own expansion state
+export const expandedWorkspaceIdsAtom = atomWithWindowStorage<string[]>(
+  "agents:expandedWorkspaceIds",
+  [],
+  { getOnInit: true },
+)
+
 // Sub-chats sidebar width (left side of chat area)
 export const agentsSubChatsSidebarWidthAtom = atomWithStorage<number>(
   "agents-subchats-sidebar-width",

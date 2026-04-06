@@ -712,7 +712,13 @@ export function NewChatForm({
 
   // Fetch repos from team
   // Desktop: no remote repos, we use local projects
-  const reposData = { repositories: [] }
+  const reposData = { repositories: [] as Array<{
+    id: string
+    name: string
+    full_name: string
+    sandbox_status?: "not_setup" | "in_progress" | "ready" | "error"
+    pushed_at?: string | null
+  }> }
   const isLoadingRepos = false
 
   // Memoize repos arrays to prevent useEffect from running on every keystroke
@@ -1210,7 +1216,7 @@ export function NewChatForm({
     // Create chat with selected project, branch, and initial message
     createChatMutation.mutate({
       projectId: selectedProject.id,
-      name: message.trim().slice(0, 50), // Use first 50 chars as chat name
+      name: selectedProject.name || message.trim().slice(0, 50), // Use project name as workspace name
       model: selectedChatModel,
       initialMessageParts: parts.length > 0 ? parts : undefined,
       baseBranch:

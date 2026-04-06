@@ -1155,8 +1155,7 @@ export const ChatInputArea = memo(function ChatInputArea({
       // Process other files - for text files, read content and add as file mention
       for (const file of otherFiles) {
         // Get file path using Electron's webUtils API (more reliable than file.path)
-        // @ts-expect-error - Electron's webUtils API
-        const filePath: string | undefined = window.webUtils?.getPathForFile?.(file) || (file as File & { path?: string }).path
+        const filePath: string | undefined = (window as any).webUtils?.getPathForFile?.(file) || (file as File & { path?: string }).path
 
         let mentionId: string
         let mentionPath: string

@@ -11,6 +11,7 @@ import {
   autoAdvanceTargetAtom,
   createTeamDialogOpenAtom,
   agentsSettingsDialogActiveTabAtom,
+  type SettingsTab,
   agentsSidebarOpenAtom,
   agentsHelpPopoverOpenAtom,
   selectedAgentChatIdsAtom,
@@ -41,13 +42,15 @@ import {
 import { usePrefetchLocalChat } from "../../lib/hooks/use-prefetch-local-chat"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
+import { IconChevronRight, IconArchive, IconPlus, IconFolder, IconSortDescending, IconSettings, IconX } from "@tabler/icons-react"
+import { Skeleton } from "../../components/ui/skeleton"
 import { useQuery } from "@tanstack/react-query"
 import { remoteTrpc } from "../../lib/remote-trpc"
 // import { useRouter } from "next/navigation" // Desktop doesn't use next/navigation
 // import { useCombinedAuth } from "@/lib/hooks/use-combined-auth"
-const useCombinedAuth = () => ({ userId: null })
+const useCombinedAuth = () => ({ userId: null, isLoaded: true })
 // import { AuthDialog } from "@/components/auth/auth-dialog"
-const AuthDialog = () => null
+const AuthDialog = (_props: { open?: boolean; onOpenChange?: (open: boolean) => void }) => null
 // Desktop: archive is handled inline, not via hook
 // import { DiscordIcon } from "@/components/icons"
 import { DiscordIcon } from "../../icons"
@@ -55,7 +58,7 @@ import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-su
 import { OpenLocallyDialog } from "../agents/components/open-locally-dialog"
 import { useAutoImport } from "../agents/hooks/use-auto-import"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
-import { trpc } from "../../lib/trpc"
+import { trpc, trpcClient } from "../../lib/trpc"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -72,6 +75,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../../components/ui/tooltip"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui/popover"
 import { Kbd } from "../../components/ui/kbd"
 import {
   ContextMenu,
@@ -86,13 +94,11 @@ import {
 import {
   IconDoubleChevronLeft,
   SettingsIcon,
-  PlusIcon,
   ProfileIcon,
   PublisherStudioIcon,
   SearchIcon,
   GitHubLogo,
   LoadingDot,
-  ArchiveIcon,
   TrashIcon,
   QuestionCircleIcon,
   QuestionIcon,
@@ -111,6 +117,7 @@ import {
   showNewChatFormAtom,
   loadingSubChatsAtom,
   agentsUnseenChangesAtom,
+  agentsSubChatUnseenChangesAtom,
   archivePopoverOpenAtom,
   agentsDebugModeAtom,
   selectedProjectAtom,
@@ -118,10 +125,11 @@ import {
   undoStackAtom,
   pendingUserQuestionsAtom,
   desktopViewAtom,
+  expandedWorkspaceIdsAtom,
   type UndoItem,
 } from "../agents/atoms"
 import { NetworkStatus } from "../../components/ui/network-status"
-import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT } from "../agents/stores/sub-chat-store"
+import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT, type SubChatMeta } from "../agents/stores/sub-chat-store"
 import { getWindowId } from "../../contexts/WindowContext"
 import { AgentsHelpPopover } from "../agents/components/agents-help-popover"
 import { getShortcutKey, isDesktopApp } from "../../lib/utils/platform"
@@ -156,20 +164,23 @@ const GitHubAvatar = React.memo(function GitHubAvatar({
   const handleLoad = useCallback(() => setIsLoaded(true), [])
   const handleError = useCallback(() => setHasError(true), [])
 
+  // Detect if parent wants rounded-full (circle) style
+  const isCircle = className?.includes("rounded-full")
+
   if (hasError) {
     return <GitHubLogo className={cn(className, "text-muted-foreground flex-shrink-0")} />
   }
 
   return (
-    <div className={cn(className, "relative flex-shrink-0")}>
+    <div className={cn(className, "relative flex-shrink-0 overflow-hidden")}>
       {/* Placeholder background while loading */}
       {!isLoaded && (
-        <div className="absolute inset-0 rounded-sm bg-muted" />
+        <div className={cn("absolute inset-0 bg-muted", isCircle ? "rounded-full" : "rounded-sm")} />
       )}
       <img
         src={`https://github.com/${gitOwner}.png?size=64`}
         alt={gitOwner}
-        className={cn(className, "rounded-sm flex-shrink-0", isLoaded ? 'opacity-100' : 'opacity-0')}
+        className={cn(className, "flex-shrink-0 object-cover", isCircle ? "rounded-full" : "rounded-sm", isLoaded ? 'opacity-100' : 'opacity-0')}
         onLoad={handleLoad}
         onError={handleError}
       />
@@ -354,62 +365,229 @@ const DraftItem = React.memo(function DraftItem({
     <div
       onClick={() => onSelect(draftId)}
       className={cn(
-        "w-full text-left py-1.5 cursor-pointer group relative",
-        "transition-colors duration-75",
+        "w-full text-left py-[7px] cursor-pointer group relative",
+        "transition-colors duration-150 rounded-lg",
         "outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
-        isMultiSelectMode ? "px-3" : "pl-2 pr-2",
-        !isMultiSelectMode && "rounded-md",
+        isMultiSelectMode ? "px-3" : "pl-[22px] pr-2",
         isSelected
-          ? "bg-foreground/5 text-foreground"
-          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+          ? "bg-foreground/[0.08] text-foreground"
+          : "text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground",
       )}
     >
-      <div className="flex items-start gap-2.5">
-        {showIcon && (
-          <div className="pt-0.5">
-            <div className="relative flex-shrink-0 w-4 h-4">
-              {projectGitOwner && projectGitProvider === "github" ? (
-                <GitHubAvatar gitOwner={projectGitOwner} />
-              ) : (
-                <GitHubLogo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              )}
-            </div>
-          </div>
-        )}
-        <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-          <div className="flex items-center gap-1">
-            <span className="truncate block text-sm leading-tight flex-1">
-              {draftText.slice(0, 50)}
-              {draftText.length > 50 ? "..." : ""}
-            </span>
-            {/* Delete button - shown on hover */}
-            {!isMultiSelectMode && !isMobileFullscreen && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDelete(draftId)
-                }}
-                tabIndex={-1}
-                className="flex-shrink-0 text-muted-foreground hover:text-foreground active:text-foreground transition-[opacity,transform,color] duration-150 ease-out opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto active:scale-[0.97]"
-                aria-label="Delete draft"
-              >
-                <TrashIcon className="h-3.5 w-3.5" />
-              </button>
+      <div className="flex items-center gap-2">
+        {/* Draft indicator dot */}
+        <div className="flex-shrink-0 w-1.5 flex items-center justify-center">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500/60" />
+        </div>
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+          <span className={cn(
+            "truncate block text-[13px] leading-snug flex-1",
+            isSelected && "font-medium",
+          )}>
+            {draftText.slice(0, 50)}
+            {draftText.length > 50 ? "..." : ""}
+          </span>
+          {/* Delete button on hover */}
+          {!isMultiSelectMode && !isMobileFullscreen && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(draftId)
+              }}
+              tabIndex={-1}
+              className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-foreground transition-[opacity,color] duration-100 opacity-0 group-hover:opacity-100"
+              aria-label="Delete draft"
+            >
+              <TrashIcon className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+})
+
+// ── Grid Pulse Spinner ─────────────────────────────────────────────────────
+// A 2x2 grid of dots that pulse in staggered sequence — used as the loading
+// indicator for active sub-chat threads. Much more visually appealing than
+// a simple spinning circle at small sizes.
+const gridDotVariants = {
+  idle: { opacity: 0.15, scale: 0.8 },
+  pulse: {
+    opacity: [0.15, 1, 0.15],
+    scale: [0.8, 1.15, 0.8],
+    transition: {
+      duration: 1.4,
+      repeat: Infinity,
+      ease: "easeInOut",
+    },
+  },
+}
+
+const GridPulseSpinner = React.memo(function GridPulseSpinner({
+  size = 10,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  // Each dot is ~38% of container to leave gaps
+  const dotSize = Math.max(1, Math.round(size * 0.38))
+  const gap = Math.max(1, Math.round(size * 0.12))
+
+  return (
+    <motion.div
+      animate="pulse"
+      transition={{ staggerChildren: 0.15 }}
+      className={cn("inline-grid grid-cols-2 items-center justify-items-center", className)}
+      style={{ width: size, height: size, gap }}
+    >
+      {[0, 1, 2, 3].map((i) => (
+        <motion.div
+          key={i}
+          variants={gridDotVariants}
+          className="rounded-full bg-current"
+          style={{ width: dotSize, height: dotSize }}
+        />
+      ))}
+    </motion.div>
+  )
+})
+
+// ── Accent Color Palette ────────────────────────────────────────────────
+// 16 Tailwind 500-level colors as hex values for workspace color coding
+const ACCENT_COLORS = [
+  { hex: "#ef4444", name: "Red" },
+  { hex: "#f97316", name: "Orange" },
+  { hex: "#f59e0b", name: "Amber" },
+  { hex: "#eab308", name: "Yellow" },
+  { hex: "#84cc16", name: "Lime" },
+  { hex: "#22c55e", name: "Green" },
+  { hex: "#10b981", name: "Emerald" },
+  { hex: "#14b8a6", name: "Teal" },
+  { hex: "#06b6d4", name: "Cyan" },
+  { hex: "#0ea5e9", name: "Sky" },
+  { hex: "#3b82f6", name: "Blue" },
+  { hex: "#6366f1", name: "Indigo" },
+  { hex: "#8b5cf6", name: "Violet" },
+  { hex: "#a855f7", name: "Purple" },
+  { hex: "#d946ef", name: "Fuchsia" },
+  { hex: "#ec4899", name: "Pink" },
+] as const
+
+// ── Workspace Settings Popover ──────────────────────────────────────────
+// Inline rename + accent color swatch grid — opens from gear icon on workspace hover
+const WorkspaceSettingsPopover = React.memo(function WorkspaceSettingsPopover({
+  chatId,
+  chatName,
+  accentColor,
+  onUpdateColor,
+  onRenameSave,
+}: {
+  chatId: string
+  chatName: string | null
+  accentColor: string | null | undefined
+  onUpdateColor: (chatId: string, color: string | null) => void
+  onRenameSave: (name: string) => Promise<void>
+}) {
+  const [nameValue, setNameValue] = useState(chatName || "")
+  const [isSaving, setIsSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Sync name when popover opens with a new chat
+  useEffect(() => {
+    setNameValue(chatName || "")
+  }, [chatName])
+
+  // Auto-focus the input when popover opens
+  useEffect(() => {
+    const timer = setTimeout(() => inputRef.current?.select(), 50)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Save the rename on blur or Enter
+  const handleSaveName = useCallback(async () => {
+    const trimmed = nameValue.trim()
+    if (!trimmed || trimmed === chatName) return
+    setIsSaving(true)
+    try {
+      await onRenameSave(trimmed)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [nameValue, chatName, onRenameSave])
+
+  return (
+    <div className="space-y-3">
+      {/* Rename input */}
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1.5 block">
+          Name
+        </label>
+        <input
+          ref={inputRef}
+          type="text"
+          value={nameValue}
+          onChange={(e) => setNameValue(e.target.value)}
+          onBlur={handleSaveName}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              handleSaveName()
+              ;(e.target as HTMLInputElement).blur()
+            }
+            if (e.key === "Escape") {
+              setNameValue(chatName || "")
+              ;(e.target as HTMLInputElement).blur()
+            }
+          }}
+          disabled={isSaving}
+          className={cn(
+            "w-full px-2.5 py-1.5 text-[13px] rounded-lg border border-border bg-background/50",
+            "outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring/50",
+            "text-foreground placeholder:text-muted-foreground/30",
+            "transition-colors duration-100",
+          )}
+          placeholder="Workspace name"
+        />
+      </div>
+
+      {/* Accent color grid */}
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1.5 block">
+          Accent Color
+        </label>
+        <div className="grid grid-cols-8 gap-2">
+          {/* Clear/none swatch */}
+          <button
+            onClick={() => onUpdateColor(chatId, null)}
+            className={cn(
+              "w-6 h-6 rounded-full border border-border/50 flex items-center justify-center",
+              "hover:border-foreground/30 transition-colors duration-100",
+              !accentColor && "ring-2 ring-foreground/40 ring-offset-1 ring-offset-background",
             )}
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground/60 truncate">
-              <span className="text-blue-500">Draft</span>
-              {projectGitRepo
-                ? ` • ${projectGitRepo}`
-                : projectName
-                  ? ` • ${projectName}`
-                  : ""}
-            </span>
-            <span className="text-[11px] text-muted-foreground/60 flex-shrink-0">
-              {formatTime(new Date(draftUpdatedAt).toISOString())}
-            </span>
-          </div>
+            aria-label="Clear accent color"
+            title="None"
+          >
+            <IconX size={9} stroke={2} className="text-muted-foreground/40" />
+          </button>
+          {/* Color swatches */}
+          {ACCENT_COLORS.map((color) => (
+            <button
+              key={color.hex}
+              onClick={() => onUpdateColor(chatId, color.hex)}
+              className={cn(
+                "w-6 h-6 rounded-full transition-all duration-100",
+                "hover:scale-110",
+                accentColor === color.hex
+                  ? "ring-2 ring-foreground/40 ring-offset-1 ring-offset-background"
+                  : "hover:ring-1 hover:ring-foreground/20 hover:ring-offset-1 hover:ring-offset-background",
+              )}
+              style={{ backgroundColor: color.hex }}
+              aria-label={color.name}
+              title={color.name}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -465,6 +643,9 @@ const AgentChatItem = React.memo(function AgentChatItem({
   nameRefCallback,
   formatTime,
   isJustCreated,
+  onCreateSubChat,
+  accentColor,
+  onUpdateColor,
 }: {
   chatId: string
   chatName: string | null
@@ -513,9 +694,23 @@ const AgentChatItem = React.memo(function AgentChatItem({
   nameRefCallback: (chatId: string, el: HTMLSpanElement | null) => void
   formatTime: (dateStr: string) => string
   isJustCreated: boolean
+  onCreateSubChat?: (chatId: string) => void
+  accentColor?: string | null
+  onUpdateColor?: (chatId: string, color: string | null) => void
 }) {
   // Resolved hotkey for context menu
   const archiveWorkspaceHotkey = useResolvedHotkeyDisplay("archive-workspace")
+
+  // Settings popover state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+
+  // Rename handler that delegates to the parent's rename mutation
+  const renameChatMutation = trpc.chats.rename.useMutation()
+  const utils = trpc.useUtils()
+  const handlePopoverRename = useCallback(async (name: string) => {
+    await renameChatMutation.mutateAsync({ id: chatId, name })
+    utils.chats.list.invalidate()
+  }, [chatId, renameChatMutation, utils.chats.list])
 
   return (
     <ContextMenu>
@@ -547,150 +742,157 @@ const AgentChatItem = React.memo(function AgentChatItem({
             onMouseEnter(chatId, chatName, e.currentTarget, globalIndex)
           }}
           onMouseLeave={onMouseLeave}
+          style={accentColor ? {
+            borderLeftColor: accentColor,
+            backgroundColor: `${accentColor}0a`, // ~4% opacity tint
+          } : undefined}
           className={cn(
             "w-full text-left py-1.5 cursor-pointer group relative",
-            "transition-colors duration-75",
+            "transition-colors duration-100",
             "outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
-            // In multi-select: px-3 compensates for removed container px-2, keeping text aligned
-            isMultiSelectMode ? "px-3" : "pl-2 pr-2",
-            !isMultiSelectMode && "rounded-md",
-            isSelected
-              ? "bg-foreground/5 text-foreground"
-              : isFocused
-                ? "bg-foreground/5 text-foreground"
-                : // On mobile, no hover effect to prevent double-tap issue
-                  isMobileFullscreen
-                  ? "text-muted-foreground"
-                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+            // Accent color left border when set
+            accentColor ? "border-l-2 rounded-r-md" : "",
+            // No background on workspace rows — only threads get selected bg (Codex style)
+            isMultiSelectMode ? "px-3" : "pl-0.5 pr-1",
             isChecked &&
               (isMobileFullscreen
-                ? "bg-primary/10"
-                : "bg-primary/10 hover:bg-primary/15"),
+                ? "bg-primary/10 rounded-lg"
+                : "bg-primary/10 hover:bg-primary/15 rounded-lg"),
           )}
         >
-          <div className="flex items-start gap-2.5">
-            {/* Icon container - only render if showIcon or in multi-select mode */}
-            {(showIcon || isMultiSelectMode) && (
-              <div className="pt-0.5">
-                <ChatIcon
-                  isSelected={isSelected}
-                  isLoading={isLoading}
-                  hasUnseenChanges={hasUnseenChanges}
-                  hasPendingPlan={hasPendingPlan}
-                  hasPendingQuestion={hasPendingQuestion}
-                  isMultiSelectMode={isMultiSelectMode}
-                  isChecked={isChecked}
-                  onCheckboxClick={(e) => onCheckboxClick(e, chatId)}
-                  gitOwner={gitOwner}
-                  gitProvider={gitProvider}
-                  showIcon={showIcon}
+          <div className="flex items-center gap-2">
+            {/* Multi-select checkbox or folder icon */}
+            {isMultiSelectMode ? (
+              <div onClick={(e) => onCheckboxClick(e, chatId)}>
+                <Checkbox
+                  checked={isChecked}
+                  className="cursor-pointer h-4 w-4"
                 />
               </div>
-            )}
-            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-              <div className="flex items-center gap-1">
-                <span
-                  ref={(el) => nameRefCallback(chatId, el)}
-                  className="truncate block text-sm leading-tight flex-1"
-                >
-                  <TypewriterText
-                    text={chatName || ""}
-                    placeholder="New workspace"
-                    id={chatId}
-                    isJustCreated={isJustCreated}
-                    showPlaceholder={true}
-                  />
-                </span>
-                {/* Archive button or inline loader/status when icon is hidden */}
-                {!isMultiSelectMode && !isMobileFullscreen && (
-                  <div className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center relative">
-                    {/* Inline loader/status when icon is hidden - always visible, hides on hover */}
-                    {!showIcon && (hasPendingQuestion || isLoading || hasUnseenChanges || hasPendingPlan) && (
-                      <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0">
-                        <AnimatePresence mode="wait">
-                          {hasPendingQuestion ? (
-                            <motion.div
-                              key="question"
-                              initial={{ opacity: 0, scale: 0.5 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.5 }}
-                              transition={{ duration: 0.15 }}
-                            >
-                              <QuestionIcon className="w-2.5 h-2.5 text-blue-500" />
-                            </motion.div>
-                          ) : isLoading ? (
-                            <motion.div
-                              key="loading"
-                              initial={{ opacity: 0, scale: 0.5 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.5 }}
-                              transition={{ duration: 0.15 }}
-                            >
-                              <LoadingDot isLoading={true} className="w-2.5 h-2.5 text-muted-foreground" />
-                            </motion.div>
-                          ) : hasPendingPlan ? (
-                            <motion.div
-                              key="plan"
-                              initial={{ opacity: 0, scale: 0.5 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.5 }}
-                              transition={{ duration: 0.15 }}
-                              className="w-1.5 h-1.5 rounded-full bg-amber-500"
-                            />
-                          ) : (
-                            <motion.div
-                              key="unseen"
-                              initial={{ opacity: 0, scale: 0.5 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.5 }}
-                              transition={{ duration: 0.15 }}
-                            >
-                              <LoadingDot isLoading={false} className="w-2.5 h-2.5 text-muted-foreground" />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+            ) : (
+              <div className="relative flex-shrink-0">
+                {/* GitHub avatar circle when available, folder icon fallback */}
+                {gitOwner && gitProvider === "github" ? (
+                  <GitHubAvatar
+                    gitOwner={gitOwner}
+                    className={cn(
+                      "h-[18px] w-[18px] rounded-full",
+                      isSelected ? "opacity-100" : "opacity-70",
                     )}
-                    {/* Archive button - appears on hover */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onArchive(chatId)
-                      }}
-                      tabIndex={-1}
-                      className="absolute inset-0 flex items-center justify-center text-muted-foreground hover:text-foreground active:text-foreground transition-[opacity,transform,color] duration-150 ease-out opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto active:scale-[0.97]"
-                      aria-label="Archive workspace"
-                    >
-                      <ArchiveIcon className="h-3.5 w-3.5" />
-                    </button>
+                  />
+                ) : (
+                  <IconFolder
+                    size={16}
+                    stroke={1.5}
+                    className={cn(
+                      "transition-colors duration-100",
+                      isSelected ? "text-foreground" : "text-muted-foreground/50",
+                    )}
+                  />
+                )}
+                {/* Status badge — question, loading, unseen, plan */}
+                {(hasPendingQuestion || isLoading || hasUnseenChanges || hasPendingPlan) && (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full flex items-center justify-center">
+                    {hasPendingQuestion ? (
+                      <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    ) : isLoading ? (
+                      <LoadingDot isLoading={true} className="w-2 h-2 text-muted-foreground" />
+                    ) : hasPendingPlan ? (
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    ) : (
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    )}
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60 min-w-0">
-                {/* Cloud icon for remote chats */}
-                {isRemote && (
-                  <CloudIcon className="h-2.5 w-2.5 flex-shrink-0" />
+            )}
+            {/* Name + subtitle column */}
+            <div className="flex-1 min-w-0">
+              <span
+                ref={(el) => nameRefCallback(chatId, el)}
+                className={cn(
+                  "truncate block text-[13px] leading-snug",
+                  isSelected ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
                 )}
-                <span className="truncate flex-1 min-w-0">{displayText}</span>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {stats && (stats.additions > 0 || stats.deletions > 0) && (
-                    <>
-                      <span className="text-green-600 dark:text-green-400">
-                        +{stats.additions}
-                      </span>
-                      <span className="text-red-600 dark:text-red-400">
-                        -{stats.deletions}
-                      </span>
-                    </>
-                  )}
-                  <span>
-                    {formatTime(
-                      chatUpdatedAt?.toISOString() ?? new Date().toISOString(),
-                    )}
-                  </span>
-                </div>
-              </div>
+              >
+                <TypewriterText
+                  text={chatName || ""}
+                  placeholder="New workspace"
+                  id={chatId}
+                  isJustCreated={isJustCreated}
+                  showPlaceholder={true}
+                />
+              </span>
+              {/* Subtitle: repo · branch or project path — helps differentiate workspaces */}
+              {displayText && (
+                <span className="truncate block text-[11px] leading-tight text-muted-foreground/35 mt-px">
+                  {displayText}
+                </span>
+              )}
             </div>
+            {/* Workspace hover actions — plus + settings + archive */}
+            {!isMultiSelectMode && !isMobileFullscreen && (
+              <div className={cn(
+                "flex-shrink-0 flex items-center gap-0 transition-opacity duration-100",
+                isSettingsOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}>
+                {onCreateSubChat && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCreateSubChat(chatId)
+                    }}
+                    tabIndex={-1}
+                    className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06] transition-colors duration-100"
+                    aria-label="New thread"
+                  >
+                    <IconPlus size={14} stroke={1.8} />
+                  </button>
+                )}
+                {/* Settings gear — opens popover with rename + color picker */}
+                <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      onClick={(e) => e.stopPropagation()}
+                      tabIndex={-1}
+                      className={cn(
+                        "flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-100",
+                        isSettingsOpen ? "text-foreground bg-foreground/[0.06]" : "text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06]",
+                      )}
+                      aria-label="Workspace settings"
+                    >
+                      <IconSettings size={14} stroke={1.8} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="right"
+                    align="start"
+                    sideOffset={12}
+                    className="w-[240px] p-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <WorkspaceSettingsPopover
+                      chatId={chatId}
+                      chatName={chatName}
+                      accentColor={accentColor}
+                      onUpdateColor={onUpdateColor || (() => {})}
+                      onRenameSave={handlePopoverRename}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onArchive(chatId)
+                  }}
+                  tabIndex={-1}
+                  className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06] transition-colors duration-100"
+                  aria-label="Archive workspace"
+                >
+                  <IconArchive size={14} stroke={1.8} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>
@@ -796,6 +998,357 @@ const AgentChatItem = React.memo(function AgentChatItem({
   )
 })
 
+// Memoized Sub-Chat Item - renders an indented sub-chat row within a workspace group
+const SubChatItem = React.memo(function SubChatItem({
+  subChat,
+  isActive,
+  isLoading,
+  hasUnseenChanges,
+  onSelect,
+  onArchive,
+  accentColor,
+}: {
+  subChat: SubChatMeta
+  isActive: boolean
+  isLoading: boolean
+  hasUnseenChanges: boolean
+  onSelect: (subChat: SubChatMeta) => void
+  onArchive: (subChatId: string) => void
+  accentColor?: string | null
+}) {
+  return (
+    <div
+      onClick={() => onSelect(subChat)}
+      style={accentColor ? {
+        borderLeftColor: accentColor,
+        backgroundColor: isActive ? `${accentColor}12` : undefined, // Stronger tint when active
+      } : undefined}
+      className={cn(
+        "w-full text-left py-[7px] pl-[22px] pr-2 cursor-pointer group/subchat relative",
+        "transition-colors duration-150 rounded-lg",
+        // Accent color left border for visual grouping
+        accentColor ? "border-l-2 rounded-l-none" : "",
+        isActive
+          ? accentColor ? "text-foreground" : "bg-foreground/[0.08] text-foreground"
+          : "text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {/* Status indicator: grid pulse spinner when loading, dot for unseen */}
+        <div className="flex-shrink-0 w-[10px] flex items-center justify-center">
+          {isLoading ? (
+            <GridPulseSpinner size={10} className="text-muted-foreground" />
+          ) : hasUnseenChanges ? (
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          ) : (
+            <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
+          )}
+        </div>
+        <span className={cn(
+          "truncate text-[13px] leading-snug flex-1",
+          isActive ? "font-medium text-foreground" : "",
+        )}>
+          {subChat.name || "New Chat"}
+        </span>
+        {/* Archive button on hover */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onArchive(subChat.id)
+          }}
+          tabIndex={-1}
+          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/30 hover:text-foreground hover:bg-foreground/[0.06] transition-[opacity,color,background-color] duration-100 opacity-0 group-hover/subchat:opacity-100"
+          aria-label="Archive thread"
+        >
+          <IconArchive size={13} stroke={1.8} />
+        </button>
+      </div>
+    </div>
+  )
+})
+
+// ── Confirm Thread Archive Dialog ────────────────────────────────────────
+// Lightweight confirmation modal before deleting a sub-chat thread
+const ConfirmThreadArchiveDialog = React.memo(function ConfirmThreadArchiveDialog({
+  isOpen,
+  threadName,
+  onClose,
+  onConfirm,
+  isPending,
+}: {
+  isOpen: boolean
+  threadName: string
+  onClose: () => void
+  onConfirm: () => void
+  isPending: boolean
+}) {
+  const [mounted, setMounted] = useState(false)
+  const openAtRef = useRef<number>(0)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (isOpen) openAtRef.current = performance.now()
+  }, [isOpen])
+
+  // Auto-focus confirm button when dialog opens
+  const handleAnimationComplete = useCallback(() => {
+    if (isOpen) confirmRef.current?.focus()
+  }, [isOpen])
+
+  // Prevent accidental immediate clicks (250ms grace period)
+  const canInteract = useCallback(() => {
+    return performance.now() - openAtRef.current > 250
+  }, [])
+
+  const handleClose = useCallback(() => {
+    if (!canInteract()) return
+    onClose()
+  }, [canInteract, onClose])
+
+  const handleConfirm = useCallback(() => {
+    if (!canInteract()) return
+    onConfirm()
+  }, [canInteract, onConfirm])
+
+  // Keyboard: Escape to close, Enter to confirm
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); handleClose() }
+      if (e.key === "Enter") { e.preventDefault(); handleConfirm() }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [isOpen, handleClose, handleConfirm])
+
+  if (!mounted) return null
+  const portalTarget = typeof document !== "undefined" ? document.body : null
+  if (!portalTarget) return null
+
+  const EASING = [0.55, 0.055, 0.675, 0.19] as const
+
+  return createPortal(
+    <AnimatePresence mode="wait" initial={false}>
+      {isOpen && (
+        <>
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.18, ease: EASING } }}
+            exit={{ opacity: 0, pointerEvents: "none" as const, transition: { duration: 0.15, ease: EASING } }}
+            className="fixed inset-0 z-[45] bg-black/25"
+            onClick={handleClose}
+            style={{ pointerEvents: "auto" }}
+          />
+          {/* Dialog */}
+          <div className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] z-[46] pointer-events-none">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2, ease: EASING }}
+              onAnimationComplete={handleAnimationComplete}
+              className="w-[90vw] max-w-[380px] pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-background rounded-2xl border shadow-2xl overflow-hidden" data-canvas-dialog>
+                <div className="p-6">
+                  <h2 className="text-lg font-semibold mb-2">Archive Thread</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Are you sure you want to archive{" "}
+                    <span className="font-medium text-foreground">
+                      {threadName || "this thread"}
+                    </span>
+                    ? This will permanently remove it and its messages.
+                  </p>
+                </div>
+                <div className="bg-muted p-4 flex justify-between border-t border-border rounded-b-xl">
+                  <ButtonCustom onClick={handleClose} variant="ghost" className="rounded-md">
+                    Cancel
+                  </ButtonCustom>
+                  <ButtonCustom
+                    ref={confirmRef}
+                    onClick={handleConfirm}
+                    variant="destructive"
+                    className="rounded-md"
+                    disabled={isPending}
+                  >
+                    {isPending ? "Archiving..." : "Archive"}
+                  </ButtonCustom>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>,
+    portalTarget,
+  )
+})
+
+// Renders the sub-chat list for an expanded workspace
+const WorkspaceSubChats = React.memo(function WorkspaceSubChats({
+  chatId,
+  isRemote,
+  searchQuery,
+  onSubChatSelect,
+  accentColor,
+}: {
+  chatId: string
+  isRemote: boolean
+  searchQuery?: string
+  onSubChatSelect: (workspaceId: string, subChat: SubChatMeta, isRemote: boolean) => void
+  accentColor?: string | null
+}) {
+  // Fetch sub-chats from tRPC for this workspace
+  const { data: chatData, isLoading: isLoadingChatData } = trpc.chats.get.useQuery(
+    { id: chatId },
+    { enabled: !isRemote }, // Only fetch for local chats
+  )
+
+  const utils = trpc.useUtils()
+  const loadingSubChats = useAtomValue(loadingSubChatsAtom)
+  const unseenChanges = useAtomValue(agentsSubChatUnseenChangesAtom)
+  const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId)
+  const selectedChatId = useAtomValue(selectedAgentChatIdAtom)
+
+  // Confirmation dialog state for thread archive
+  const [archiveConfirmId, setArchiveConfirmId] = useState<string | null>(null)
+  const archiveConfirmName = useMemo(() => {
+    if (!archiveConfirmId || !chatData?.subChats) return ""
+    return chatData.subChats.find((sc) => sc.id === archiveConfirmId)?.name ?? "Untitled"
+  }, [archiveConfirmId, chatData?.subChats])
+
+  // Delete sub-chat mutation — actually removes from the database
+  const deleteSubChatMutation = trpc.chats.deleteSubChat.useMutation({
+    onSuccess: () => {
+      if (archiveConfirmId) {
+        // Remove from Zustand open tabs + allSubChats
+        useAgentSubChatStore.getState().removeFromOpenSubChats(archiveConfirmId)
+        // Invalidate the workspace query so the list refreshes
+        utils.chats.get.invalidate({ id: chatId })
+      }
+      setArchiveConfirmId(null)
+    },
+    onError: () => {
+      toast.error("Failed to archive thread")
+      setArchiveConfirmId(null)
+    },
+  })
+
+  // Sort sub-chats by most recent first, then filter by search query
+  const subChats = useMemo(() => {
+    if (!chatData?.subChats) return []
+    const sorted = [...chatData.subChats].sort((a, b) => {
+      const aT = new Date(a.updatedAt || a.createdAt || "0").getTime()
+      const bT = new Date(b.updatedAt || b.createdAt || "0").getTime()
+      return bT - aT
+    })
+    // Apply search filter if provided
+    if (searchQuery?.trim()) {
+      const query = searchQuery.toLowerCase()
+      return sorted.filter((sc) =>
+        (sc.name ?? "").toLowerCase().includes(query),
+      )
+    }
+    return sorted
+  }, [chatData?.subChats, searchQuery])
+
+  // Show confirmation dialog before archiving
+  const handleArchiveSubChat = useCallback((subChatId: string) => {
+    setArchiveConfirmId(subChatId)
+  }, [])
+
+  // Confirm the archive — actually delete the sub-chat
+  const handleConfirmArchive = useCallback(() => {
+    if (!archiveConfirmId) return
+    deleteSubChatMutation.mutate({ id: archiveConfirmId })
+  }, [archiveConfirmId, deleteSubChatMutation])
+
+  // Skeleton loading rows while fetching sub-chats
+  if (isLoadingChatData && !chatData) {
+    return (
+      <div className="py-px space-y-px">
+        {[1, 2].map((i) => (
+          <div key={i} className="pl-[22px] pr-2 py-[7px]">
+            <Skeleton
+              className="h-[14px] rounded-sm"
+              style={{ width: i === 1 ? "65%" : "45%" }}
+            />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (!chatData?.subChats || chatData.subChats.length === 0) {
+    return (
+      <div className="pl-[22px] pr-2 py-[7px]">
+        <span className="text-[12px] text-muted-foreground/25 italic">No threads</span>
+      </div>
+    )
+  }
+
+  // All sub-chats filtered out by search
+  if (subChats.length === 0) {
+    return null
+  }
+
+  return (
+    <>
+      <motion.div
+        className="py-px"
+        initial="collapsed"
+        animate="open"
+        variants={{
+          collapsed: {},
+          open: {
+            transition: { staggerChildren: 0.035, delayChildren: 0.02 },
+          },
+        }}
+      >
+        {subChats.map((sc) => (
+          <motion.div
+            key={sc.id}
+            variants={{
+              collapsed: { opacity: 0, y: -4 },
+              open: { opacity: 1, y: 0 },
+            }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+          >
+            <SubChatItem
+              subChat={{
+                id: sc.id,
+                name: sc.name ?? "New Chat",
+                created_at: sc.createdAt?.toISOString() ?? new Date().toISOString(),
+                updated_at: sc.updatedAt?.toISOString() ?? undefined,
+                mode: sc.mode as "agent" | "plan" | undefined,
+              }}
+              isActive={selectedChatId === chatId && activeSubChatId === sc.id}
+              isLoading={loadingSubChats.has(sc.id)}
+              hasUnseenChanges={unseenChanges.has(sc.id)}
+              onSelect={(subChat) => onSubChatSelect(chatId, subChat, isRemote)}
+              onArchive={handleArchiveSubChat}
+              accentColor={accentColor}
+            />
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* Thread archive confirmation dialog */}
+      <ConfirmThreadArchiveDialog
+        isOpen={archiveConfirmId !== null}
+        threadName={archiveConfirmName}
+        onClose={() => setArchiveConfirmId(null)}
+        onConfirm={handleConfirmArchive}
+        isPending={deleteSubChatMutation.isPending}
+      />
+    </>
+  )
+})
+
 // Custom comparator for ChatListSection to handle Set/Map props correctly
 // Sets and Maps from Jotai atoms are stable by reference when unchanged,
 // but we add explicit size checks for extra safety
@@ -834,6 +1387,11 @@ function chatListSectionPropsAreEqual(
   if (prevProps.projectsMap !== nextProps.projectsMap) return false
   if (prevProps.workspaceFileStats !== nextProps.workspaceFileStats) return false
 
+  // Check hierarchical expand/collapse props by reference
+  if (prevProps.expandedSet !== nextProps.expandedSet) return false
+  if (prevProps.searchQuery !== nextProps.searchQuery) return false
+  if (prevProps.sortMode !== nextProps.sortMode) return false
+
   // Callback functions are stable from useCallback in parent
   // No need to compare them - they only change when their deps change
 
@@ -848,6 +1406,7 @@ interface ChatListSectionProps {
     branch: string | null
     updatedAt: Date | null
     projectId: string | null
+    accentColor?: string | null
     isRemote: boolean
     meta?: { repository?: string; branch?: string | null } | null
     remoteStats?: { fileCount: number; additions: number; deletions: number } | null
@@ -864,7 +1423,7 @@ interface ChatListSectionProps {
   isMobileFullscreen: boolean
   isDesktop: boolean
   pinnedChatIds: Set<string>
-  projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name?: string | null }>
+  projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name?: string | null; path?: string | null }>
   workspaceFileStats: Map<string, { fileCount: number; additions: number; deletions: number }>
   filteredChats: Array<{ id: string }>
   canShowPinOption: boolean
@@ -889,6 +1448,17 @@ interface ChatListSectionProps {
   nameRefCallback: (chatId: string, el: HTMLSpanElement | null) => void
   formatTime: (dateStr: string) => string
   justCreatedIds: Set<string>
+  // Hierarchical expand/collapse props
+  expandedSet: Set<string>
+  onToggleExpand: (chatId: string) => void
+  onSubChatSelect: (workspaceId: string, subChat: SubChatMeta, isRemote: boolean) => void
+  onCreateSubChat: (workspaceId: string) => void
+  searchQuery?: string
+  // Sort controls
+  sortMode: "recent" | "alpha"
+  onToggleSort: () => void
+  // Accent color
+  onUpdateColor: (chatId: string, color: string | null) => void
 }
 
 // Memoized Chat List Section component
@@ -932,8 +1502,26 @@ const ChatListSection = React.memo(function ChatListSection({
   nameRefCallback,
   formatTime,
   justCreatedIds,
+  expandedSet,
+  onToggleExpand,
+  onSubChatSelect,
+  onCreateSubChat,
+  searchQuery,
+  sortMode,
+  onToggleSort,
+  onUpdateColor,
 }: ChatListSectionProps) {
   if (chats.length === 0) return null
+
+  // When searching, auto-expand all workspaces so sub-chats are visible and filterable
+  const effectiveExpandedSet = useMemo(() => {
+    if (searchQuery?.trim()) {
+      const allIds = new Set(expandedSet)
+      chats.forEach((c) => allIds.add(c.id))
+      return allIds
+    }
+    return expandedSet
+  }, [expandedSet, searchQuery, chats])
 
   // Pre-compute global indices map to avoid O(n²) findIndex in map()
   const globalIndexMap = useMemo(() => {
@@ -946,15 +1534,40 @@ const ChatListSection = React.memo(function ChatListSection({
     <>
       <div
         className={cn(
-          "flex items-center h-4 mb-1",
-          isMultiSelectMode ? "pl-3" : "pl-2",
+          "flex items-center h-7 mb-0.5 mt-3 first:mt-0",
+          isMultiSelectMode ? "pl-3 pr-2" : "pl-1 pr-1",
         )}
       >
-        <h3 className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+        <h3 className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap flex-1">
           {title}
         </h3>
+        {/* Section action icons — sort toggle */}
+        {!isMultiSelectMode && (
+          <div className="flex items-center gap-0.5">
+            <Tooltip delayDuration={500}>
+              <TooltipTrigger asChild>
+                <button
+                  tabIndex={-1}
+                  onClick={onToggleSort}
+                  className={cn(
+                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-100",
+                    sortMode === "alpha"
+                      ? "text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.06]"
+                      : "text-muted-foreground/25 hover:text-muted-foreground/60 hover:bg-foreground/[0.04]",
+                  )}
+                  aria-label={sortMode === "recent" ? "Sort alphabetically" : "Sort by recent"}
+                >
+                  <IconSortDescending size={14} stroke={1.5} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">
+                {sortMode === "recent" ? "Sort A-Z" : "Sort by recent"}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
       </div>
-      <div className="list-none p-0 m-0 mb-3">
+      <div className="list-none p-0 m-0 mb-2 space-y-px">
         {chats.map((chat) => {
           const isLoading = loadingChatIds.has(chat.id)
           // For remote chats, compare without prefix; for local, compare directly
@@ -970,11 +1583,19 @@ const ChatListSection = React.memo(function ChatListSection({
           const repoName = chat.isRemote
             ? chat.meta?.repository
             : (project?.gitRepo || project?.name)
+          // Build a helpful subtitle: "owner/repo · branch" or "~/Code/project" shorthand
+          const projectPath = project?.path
+            ? project.path.replace(/^\/Users\/[^/]+/, "~") // Shorten home dir to ~
+            : null
           const displayText = chat.branch
             ? repoName
-              ? `${repoName} • ${chat.branch}`
+              ? `${repoName} · ${chat.branch}`
               : chat.branch
-            : repoName || (chat.isRemote ? "Remote project" : "Local project")
+            : repoName
+              ? projectPath
+                ? `${repoName} · ${projectPath}`
+                : repoName
+              : projectPath || (chat.isRemote ? "Remote project" : "")
 
           const isChecked = selectedChatIds.has(chat.id)
           // TODO: remote stats disabled — backend no longer computes them (was causing 50s+ loads)
@@ -992,56 +1613,108 @@ const ChatListSection = React.memo(function ChatListSection({
           const gitProvider = chat.isRemote ? 'github' : project?.gitProvider
 
           return (
-            <AgentChatItem
-              key={chat.id}
-              chatId={chat.id}
-              chatName={chat.name}
-              chatBranch={chat.branch}
-              chatUpdatedAt={chat.updatedAt}
-              chatProjectId={chat.projectId ?? ""}
-              globalIndex={globalIndex}
-              isSelected={isSelected}
-              isLoading={isLoading}
-              hasUnseenChanges={unseenChanges.has(chat.id)}
-              hasPendingPlan={hasPendingPlan}
-              hasPendingQuestion={hasPendingQuestion}
-              isMultiSelectMode={isMultiSelectMode}
-              isChecked={isChecked}
-              isFocused={isFocused}
-              isMobileFullscreen={isMobileFullscreen}
-              isDesktop={isDesktop}
-              isPinned={isPinned}
-              displayText={displayText}
-              gitOwner={gitOwner}
-              gitProvider={gitProvider}
-              stats={stats ?? undefined}
-              selectedChatIdsSize={selectedChatIds.size}
-              canShowPinOption={canShowPinOption}
-              areAllSelectedPinned={areAllSelectedPinned}
-              filteredChatsLength={filteredChats.length}
-              isLastInFilteredChats={isLastInFilteredChats}
-              showIcon={showIcon}
-              onChatClick={onChatClick}
-              onCheckboxClick={onCheckboxClick}
-              onMouseEnter={onMouseEnter}
-              onMouseLeave={onMouseLeave}
-              onArchive={onArchive}
-              onTogglePin={onTogglePin}
-              onRenameClick={onRenameClick}
-              onCopyBranch={onCopyBranch}
-              onArchiveAllBelow={onArchiveAllBelow}
-              onArchiveOthers={onArchiveOthers}
-              onOpenLocally={onOpenLocally}
-              onBulkPin={onBulkPin}
-              onBulkUnpin={onBulkUnpin}
-              onBulkArchive={onBulkArchive}
-              archivePending={archivePending}
-              archiveBatchPending={archiveBatchPending}
-              isRemote={chat.isRemote}
-              nameRefCallback={nameRefCallback}
-              formatTime={formatTime}
-              isJustCreated={isJustCreated}
-            />
+            <div key={chat.id} className="group/workspace">
+              <div
+                className="flex items-center relative cursor-pointer"
+                onClick={(e) => {
+                  // Clicking the workspace row toggles expand + selects
+                  e.stopPropagation()
+                  onToggleExpand(chat.id)
+                }}
+              >
+                {/* Chevron integrated into workspace row */}
+                {!isMultiSelectMode && (
+                  <IconChevronRight
+                    size={11}
+                    stroke={1.5}
+                    className={cn(
+                      "flex-shrink-0 text-muted-foreground/30 transition-transform duration-200 ease-out mr-0.5",
+                      effectiveExpandedSet.has(chat.id) && "rotate-90",
+                    )}
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <AgentChatItem
+                    chatId={chat.id}
+                    chatName={chat.name}
+                    chatBranch={chat.branch}
+                    chatUpdatedAt={chat.updatedAt}
+                    chatProjectId={chat.projectId ?? ""}
+                    globalIndex={globalIndex}
+                    isSelected={isSelected}
+                    isLoading={isLoading}
+                    hasUnseenChanges={unseenChanges.has(chat.id)}
+                    hasPendingPlan={hasPendingPlan}
+                    hasPendingQuestion={hasPendingQuestion}
+                    isMultiSelectMode={isMultiSelectMode}
+                    isChecked={isChecked}
+                    isFocused={isFocused}
+                    isMobileFullscreen={isMobileFullscreen}
+                    isDesktop={isDesktop}
+                    isPinned={isPinned}
+                    displayText={displayText}
+                    gitOwner={gitOwner}
+                    gitProvider={gitProvider}
+                    stats={stats ?? undefined}
+                    selectedChatIdsSize={selectedChatIds.size}
+                    canShowPinOption={canShowPinOption}
+                    areAllSelectedPinned={areAllSelectedPinned}
+                    filteredChatsLength={filteredChats.length}
+                    isLastInFilteredChats={isLastInFilteredChats}
+                    showIcon={true}
+                    onChatClick={onChatClick}
+                    onCheckboxClick={onCheckboxClick}
+                    onMouseEnter={onMouseEnter}
+                    onMouseLeave={onMouseLeave}
+                    onArchive={onArchive}
+                    onTogglePin={onTogglePin}
+                    onRenameClick={onRenameClick}
+                    onCopyBranch={onCopyBranch}
+                    onArchiveAllBelow={onArchiveAllBelow}
+                    onArchiveOthers={onArchiveOthers}
+                    onOpenLocally={onOpenLocally}
+                    onBulkPin={onBulkPin}
+                    onBulkUnpin={onBulkUnpin}
+                    onBulkArchive={onBulkArchive}
+                    archivePending={archivePending}
+                    archiveBatchPending={archiveBatchPending}
+                    isRemote={chat.isRemote}
+                    nameRefCallback={nameRefCallback}
+                    formatTime={formatTime}
+                    isJustCreated={isJustCreated}
+                    onCreateSubChat={() => onCreateSubChat(chat.isRemote ? chat.id.replace(/^remote_/, '') : chat.id)}
+                    accentColor={chat.accentColor}
+                    onUpdateColor={onUpdateColor}
+                  />
+                </div>
+              </div>
+              {/* Sub-chats list when workspace is expanded (or when searching) */}
+              <AnimatePresence initial={false}>
+                {effectiveExpandedSet.has(chat.id) && (
+                  <motion.div
+                    key={`subchat-${chat.id}`}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{
+                      height: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
+                      opacity: { duration: 0.15, ease: "easeOut" },
+                    }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pb-0.5">
+                      <WorkspaceSubChats
+                        chatId={chat.isRemote ? chat.id.replace(/^remote_/, '') : chat.id}
+                        isRemote={chat.isRemote}
+                        searchQuery={searchQuery}
+                        onSubChatSelect={onSubChatSelect}
+                        accentColor={chat.accentColor}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           )
         })}
       </div>
@@ -1054,7 +1727,7 @@ interface AgentsSidebarProps {
   clerkUser?: any
   desktopUser?: { id: string; email: string; name?: string } | null
   onSignOut?: () => void
-  onToggleSidebar?: () => void
+  onToggleSidebar?: (e?: React.MouseEvent) => void
   isMobileFullscreen?: boolean
   onChatSelect?: () => void
 }
@@ -1066,10 +1739,10 @@ const ArchiveButton = memo(forwardRef<HTMLButtonElement, React.ButtonHTMLAttribu
       <button
         ref={ref}
         type="button"
-        className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+        className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
         {...props}
       >
-        <ArchiveIcon className="h-4 w-4" />
+        <IconArchive size={18} stroke={1.5} />
       </button>
     )
   }
@@ -1103,9 +1776,9 @@ const KanbanButton = memo(function KanbanButton() {
         <button
           type="button"
           onClick={handleClick}
-          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+          className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
         >
-          <Columns3 className="h-4 w-4" />
+          <Columns3 className="h-[18px] w-[18px]" />
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -1182,14 +1855,14 @@ const InboxButton = memo(function InboxButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm transition-colors duration-150",
+        "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-[13px] transition-colors duration-150",
         isActive
-          ? "bg-foreground/5 text-foreground"
-          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+          ? "bg-foreground/[0.07] text-foreground"
+          : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
       )}
     >
-      <SidebarInboxIcon className="h-4 w-4" />
-      <span className="flex-1 text-left">Inbox</span>
+      <SidebarInboxIcon className="h-[18px] w-[18px]" />
+      <span className="flex-1 text-left font-medium">Inbox</span>
       {inboxUnreadCount > 0 && (
         <span className="bg-muted text-muted-foreground text-xs font-medium px-1.5 py-0.5 rounded-md min-w-[20px] text-center">
           {inboxUnreadCount > 99 ? "99+" : inboxUnreadCount}
@@ -1214,12 +1887,12 @@ const AutomationsButton = memo(function AutomationsButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "group flex items-center gap-2.5 w-full pl-2 pr-2 py-1.5 rounded-md text-sm transition-colors duration-150",
-        "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+        "group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-[13px] transition-colors duration-150",
+        "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
       )}
     >
-      <SidebarAutomationsIcon className="h-4 w-4" />
-      <span className="flex-1 text-left">Automations</span>
+      <SidebarAutomationsIcon className="h-[18px] w-[18px]" />
+      <span className="flex-1 text-left font-medium">Automations</span>
       <ArrowUpRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
     </button>
   )
@@ -1277,13 +1950,13 @@ interface SidebarHeaderProps {
   userId: string | null | undefined
   desktopUser: { id: string; email: string; name?: string } | null
   onSignOut: () => void
-  onToggleSidebar?: () => void
+  onToggleSidebar?: (e?: React.MouseEvent) => void
   setSettingsDialogOpen: (open: boolean) => void
-  setSettingsActiveTab: (tab: string) => void
+  setSettingsActiveTab: (tab: SettingsTab) => void
   setShowAuthDialog: (open: boolean) => void
   handleSidebarMouseEnter: () => void
-  handleSidebarMouseLeave: () => void
-  closeButtonRef: React.RefObject<HTMLDivElement>
+  handleSidebarMouseLeave: (e: React.MouseEvent) => void
+  closeButtonRef: React.RefObject<HTMLDivElement | null>
 }
 
 const SidebarHeader = memo(function SidebarHeader({
@@ -1369,7 +2042,7 @@ const SidebarHeader = memo(function SidebarHeader({
       <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
 
       {/* Team dropdown - below traffic lights */}
-      <div className="px-2 pt-2 pb-2">
+      <div className="px-3 pt-2 pb-2">
         <div className="flex items-center gap-1">
           <div className="flex-1 min-w-0">
             <DropdownMenu
@@ -1637,10 +2310,10 @@ const HelpSection = memo(function HelpSection({ isMobile }: HelpSectionProps) {
             <button
               ref={helpButtonRef}
               type="button"
-              className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
               suppressHydrationWarning
             >
-              <QuestionCircleIcon className="h-4 w-4" />
+              <QuestionCircleIcon className="h-[18px] w-[18px]" />
             </button>
           </AgentsHelpPopover>
         </div>
@@ -1676,6 +2349,7 @@ export function AgentsSidebar({
   const isSidebarHoveredRef = useRef(false)
   const closeButtonRef = useRef<HTMLDivElement>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [sortMode, setSortMode] = useState<"recent" | "alpha">("recent") // Sort toggle: recent first or alphabetical
   const [focusedChatIndex, setFocusedChatIndex] = useState<number>(-1) // -1 means no focus
   const hoveredChatIndexRef = useRef<number>(-1) // Track hovered chat for X hotkey - ref to avoid re-renders
 
@@ -1788,6 +2462,97 @@ export function AgentsSidebar({
     }
   }, [])
 
+  // Get tRPC utils early — needed for cache invalidation in callbacks below
+  const utils = trpc.useUtils()
+
+  // ── Hierarchical sidebar: expanded workspaces state ──────────────────────
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useAtom(expandedWorkspaceIdsAtom)
+  const expandedSet = useMemo(() => new Set(expandedWorkspaceIds), [expandedWorkspaceIds])
+
+  // Toggle workspace expansion (collapse if expanded, expand if collapsed)
+  const handleToggleExpand = useCallback((chatId: string) => {
+    setExpandedWorkspaceIds((prev) => {
+      const set = new Set(prev)
+      if (set.has(chatId)) {
+        set.delete(chatId)
+      } else {
+        set.add(chatId)
+      }
+      return Array.from(set)
+    })
+  }, [setExpandedWorkspaceIds])
+
+  // Toggle sort mode between recent and alphabetical
+  const handleToggleSort = useCallback(() => {
+    setSortMode((prev) => (prev === "recent" ? "alpha" : "recent"))
+  }, [])
+
+  // Auto-expand workspace when it's selected so user can see its sub-chats
+  useEffect(() => {
+    if (selectedChatId && !expandedSet.has(selectedChatId)) {
+      setExpandedWorkspaceIds((prev) => {
+        if (prev.includes(selectedChatId)) return prev
+        return [...prev, selectedChatId]
+      })
+    }
+  }, [selectedChatId, expandedSet, setExpandedWorkspaceIds])
+
+  // Handle sub-chat selection from the hierarchy tree
+  const handleSubChatSelect = useCallback((workspaceId: string, subChat: SubChatMeta, isRemote: boolean) => {
+    // Set the workspace as selected
+    const chatOriginalId = isRemote ? workspaceId.replace(/^remote_/, '') : workspaceId
+    setSelectedChatId(chatOriginalId)
+    setSelectedChatIsRemote(isRemote)
+    setChatSourceMode(isRemote ? "sandbox" : "local")
+
+    // Set the sub-chat as active in the store
+    const store = useAgentSubChatStore.getState()
+    store.setChatId(chatOriginalId)
+    if (!store.openSubChatIds.includes(subChat.id)) {
+      store.addToOpenSubChats(subChat.id)
+    }
+    store.setActiveSubChat(subChat.id)
+
+    // Claim chat in desktop (prevent other windows from opening same chat)
+    window.desktopApi?.claimChat(chatOriginalId)
+  }, [setSelectedChatId, setSelectedChatIsRemote, setChatSourceMode])
+
+  // Create a new sub-chat within a workspace
+  const handleCreateSubChat = useCallback(async (workspaceId: string) => {
+    try {
+      const newSubChat = await trpcClient.chats.createSubChat.mutate({
+        chatId: workspaceId,
+        name: "Untitled",
+        mode: "agent",
+      })
+
+      // Expand the workspace if not already expanded
+      setExpandedWorkspaceIds((prev) => {
+        if (prev.includes(workspaceId)) return prev
+        return [...prev, workspaceId]
+      })
+
+      // Set the workspace as selected and navigate to the new sub-chat
+      setSelectedChatId(workspaceId)
+      const store = useAgentSubChatStore.getState()
+      store.setChatId(workspaceId)
+      store.addToAllSubChats({
+        id: newSubChat.id,
+        name: "Untitled",
+        created_at: new Date().toISOString(),
+        mode: "agent",
+      })
+      store.addToOpenSubChats(newSubChat.id)
+      store.setActiveSubChat(newSubChat.id)
+      window.desktopApi?.claimChat(workspaceId)
+
+      // Invalidate the chat query so WorkspaceSubChats re-fetches and shows the new thread
+      utils.chats.get.invalidate({ id: workspaceId })
+    } catch (err) {
+      toast.error("Failed to create chat")
+    }
+  }, [setExpandedWorkspaceIds, setSelectedChatId, utils])
+
   // Fetch all local chats (no project filter)
   const { data: localChats } = trpc.chats.list.useQuery({})
 
@@ -1816,6 +2581,7 @@ export function AgentsSidebar({
       baseBranch: string | null
       prUrl: string | null
       prNumber: number | null
+      accentColor?: string | null
       sandboxId?: string | null
       meta?: { repository?: string; branch?: string | null } | null
       isRemote: boolean
@@ -1837,6 +2603,7 @@ export function AgentsSidebar({
           baseBranch: chat.baseBranch,
           prUrl: chat.prUrl,
           prNumber: chat.prNumber,
+          accentColor: chat.accentColor,
           isRemote: false,
         })
       }
@@ -1947,9 +2714,6 @@ export function AgentsSidebar({
   // Fetch all archived chats (to get count)
   const { data: archivedChats } = trpc.chats.listArchived.useQuery({})
   const archivedChatsCount = archivedChats?.length ?? 0
-
-  // Get utils outside of callbacks - hooks must be called at top level
-  const utils = trpc.useUtils()
 
   // Unified undo stack for workspaces and sub-chats (Jotai atom)
   const [undoStack, setUndoStack] = useAtom(undoStackAtom)
@@ -2172,6 +2936,25 @@ export function AgentsSidebar({
     },
   })
 
+  // Accent color mutation — updates workspace color with optimistic cache update
+  const updateColorMutation = trpc.chats.updateColor.useMutation({
+    onSuccess: () => {
+      utils.chats.list.invalidate()
+    },
+    onError: () => {
+      toast.error("Failed to update color")
+    },
+  })
+
+  const handleUpdateColor = useCallback((chatId: string, color: string | null) => {
+    // Optimistic update in the chats list cache
+    utils.chats.list.setData({}, (old) => {
+      if (!old) return old
+      return old.map((c) => c.id === chatId ? { ...c, accentColor: color } : c)
+    })
+    updateColorMutation.mutate({ id: chatId, accentColor: color })
+  }, [updateColorMutation, utils.chats.list])
+
   const handleTogglePin = useCallback((chatId: string) => {
     setPinnedChatIds((prev) => {
       const next = new Set(prev)
@@ -2281,25 +3064,34 @@ export function AgentsSidebar({
   const clerkUsername = clerkUser?.username
 
   // Filter and separate pinned/unpinned agents
+  // During search: show ALL workspaces (they auto-expand and sub-chats are filtered within each)
+  // This allows finding threads even when the parent workspace name doesn't match the query
   const { pinnedAgents, unpinnedAgents, filteredChats } = useMemo(() => {
     if (!agentChats)
       return { pinnedAgents: [], unpinnedAgents: [], filteredChats: [] }
 
-    const filtered = searchQuery.trim()
-      ? agentChats.filter((chat) =>
-          (chat.name ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
-        )
-      : agentChats
+    // Keep all workspaces visible during search — sub-chat filtering happens inside
+    // WorkspaceSubChats, and workspace names are visually dimmed when they don't match
+    let sorted = [...agentChats]
 
-    const pinned = filtered.filter((chat) => pinnedChatIds.has(chat.id))
-    const unpinned = filtered.filter((chat) => !pinnedChatIds.has(chat.id))
+    // Apply sort mode: "alpha" sorts alphabetically, "recent" is already sorted by updatedAt
+    if (sortMode === "alpha") {
+      sorted.sort((a, b) => {
+        const aName = (a.name ?? "").toLowerCase()
+        const bName = (b.name ?? "").toLowerCase()
+        return aName.localeCompare(bName)
+      })
+    }
+
+    const pinned = sorted.filter((chat) => pinnedChatIds.has(chat.id))
+    const unpinned = sorted.filter((chat) => !pinnedChatIds.has(chat.id))
 
     return {
       pinnedAgents: pinned,
       unpinnedAgents: unpinned,
       filteredChats: [...pinned, ...unpinned],
     }
-  }, [searchQuery, agentChats, pinnedChatIds])
+  }, [searchQuery, agentChats, pinnedChatIds, sortMode])
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2656,11 +3448,16 @@ export function AgentsSidebar({
     setChatSourceMode(isRemote ? "sandbox" : "local")
     setShowNewChatForm(false) // Clear new chat form state when selecting a workspace
     setDesktopView(null) // Clear automations/inbox view when selecting a chat
+
+    // Toggle expand/collapse when re-clicking an already-selected workspace
+    if (selectedChatId === originalId) {
+      handleToggleExpand(chatId)
+    }
     // On mobile, notify parent to switch to chat mode
     if (isMobileFullscreen && onChatSelect) {
       onChatSelect()
     }
-  }, [filteredChats, selectedChatId, selectedChatIds, toggleChatSelection, setSelectedChatIds, setSelectedChatId, setSelectedChatIsRemote, setChatSourceMode, setShowNewChatForm, setDesktopView, isMobileFullscreen, onChatSelect])
+  }, [filteredChats, selectedChatId, selectedChatIds, toggleChatSelection, setSelectedChatIds, setSelectedChatId, setSelectedChatIsRemote, setChatSourceMode, setShowNewChatForm, setDesktopView, isMobileFullscreen, onChatSelect, handleToggleExpand])
 
   const handleCheckboxClick = useCallback((e: React.MouseEvent, chatId: string) => {
     e.stopPropagation()
@@ -3133,7 +3930,7 @@ export function AgentsSidebar({
       />
 
       {/* Search and New Workspace */}
-      <div className="px-2 pb-3 flex-shrink-0">
+      <div className="px-3 pb-3 flex-shrink-0">
         <div className="space-y-2">
           {/* Search Input */}
           <div className="relative">
@@ -3187,8 +3984,8 @@ export function AgentsSidebar({
                 }
               }}
               className={cn(
-                "w-full rounded-lg text-sm bg-muted border border-input placeholder:text-muted-foreground/40",
-                isMobileFullscreen ? "h-10" : "h-7",
+                "w-full rounded-lg text-[13px] bg-muted/50 border border-border/40 placeholder:text-muted-foreground/30 focus:bg-muted focus:border-border/60 px-2.5",
+                isMobileFullscreen ? "h-10" : "h-8",
               )}
             />
           </div>
@@ -3200,11 +3997,12 @@ export function AgentsSidebar({
                 variant="outline"
                 size="sm"
                 className={cn(
-                  "px-2 w-full hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground rounded-lg gap-1.5",
-                  isMobileFullscreen ? "h-10" : "h-7",
+                  "px-2.5 w-full hover:bg-foreground/[0.06] border-border/50 transition-[background-color,transform] duration-150 ease-out active:scale-[0.98] text-foreground rounded-lg gap-2",
+                  isMobileFullscreen ? "h-10" : "h-8",
                 )}
               >
-                <span className="text-sm font-medium">New Workspace</span>
+                <IconPlus size={15} stroke={2} className="text-muted-foreground/70" />
+                <span className="text-[13px] font-medium">New Workspace</span>
               </ButtonCustom>
             </TooltipTrigger>
             <TooltipContent side="right" className="flex flex-col items-start gap-1">
@@ -3221,7 +4019,7 @@ export function AgentsSidebar({
       </div>
 
       {/* Navigation Links - Inbox & Automations */}
-      <div className="px-2 pb-3 flex-shrink-0 space-y-0.5 -mx-1">
+      <div className="px-3 pb-2.5 flex-shrink-0 space-y-0.5">
         <InboxButton />
         <AutomationsButton />
       </div>
@@ -3233,23 +4031,23 @@ export function AgentsSidebar({
           onScroll={handleAgentsScroll}
           className={cn(
             "h-full overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent",
-            isMultiSelectMode ? "px-0" : "px-2",
+            isMultiSelectMode ? "px-0" : "px-3",
           )}
         >
           {/* Drafts Section - always show regardless of chat source mode */}
           {drafts.length > 0 && !searchQuery && (
-            <div className={cn("mb-4", isMultiSelectMode ? "px-0" : "-mx-1")}>
+            <div className={cn("mb-3", isMultiSelectMode ? "px-0" : "-mx-1")}>
               <div
                 className={cn(
-                  "flex items-center h-4 mb-1",
-                  isMultiSelectMode ? "pl-3" : "pl-2",
+                  "flex items-center h-7 mb-0.5",
+                  isMultiSelectMode ? "pl-3" : "pl-1",
                 )}
               >
-                <h3 className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                <h3 className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
                   Drafts
                 </h3>
               </div>
-              <div className="list-none p-0 m-0">
+              <div className="list-none p-0 m-0 space-y-0.5">
                 {drafts.map((draft) => (
                   <DraftItem
                     key={draft.id}
@@ -3275,7 +4073,7 @@ export function AgentsSidebar({
 
           {/* Chats Section */}
           {filteredChats.length > 0 ? (
-            <div className={cn("mb-4", isMultiSelectMode ? "px-0" : "-mx-1")}>
+            <div className={cn("mb-3", isMultiSelectMode ? "px-0" : "-mx-1")}>
               {/* Pinned section */}
               <ChatListSection
                 title="Pinned workspaces"
@@ -3297,7 +4095,7 @@ export function AgentsSidebar({
                 filteredChats={filteredChats}
                 canShowPinOption={canShowPinOption}
                 areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={showWorkspaceIcon}
+                showIcon={true}
                 onChatClick={handleChatClick}
                 onCheckboxClick={handleCheckboxClick}
                 onMouseEnter={handleAgentMouseEnter}
@@ -3317,6 +4115,14 @@ export function AgentsSidebar({
                 nameRefCallback={nameRefCallback}
                 formatTime={formatTime}
                 justCreatedIds={justCreatedIds}
+                expandedSet={expandedSet}
+                onToggleExpand={handleToggleExpand}
+                onSubChatSelect={handleSubChatSelect}
+                onCreateSubChat={handleCreateSubChat}
+                searchQuery={searchQuery}
+                sortMode={sortMode}
+                onToggleSort={handleToggleSort}
+                onUpdateColor={handleUpdateColor}
               />
 
               {/* Unpinned section */}
@@ -3340,7 +4146,7 @@ export function AgentsSidebar({
                 filteredChats={filteredChats}
                 canShowPinOption={canShowPinOption}
                 areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={showWorkspaceIcon}
+                showIcon={true}
                 onChatClick={handleChatClick}
                 onCheckboxClick={handleCheckboxClick}
                 onMouseEnter={handleAgentMouseEnter}
@@ -3360,6 +4166,14 @@ export function AgentsSidebar({
                 nameRefCallback={nameRefCallback}
                 formatTime={formatTime}
                 justCreatedIds={justCreatedIds}
+                expandedSet={expandedSet}
+                onToggleExpand={handleToggleExpand}
+                onSubChatSelect={handleSubChatSelect}
+                onCreateSubChat={handleCreateSubChat}
+                searchQuery={searchQuery}
+                sortMode={sortMode}
+                onToggleSort={handleToggleSort}
+                onUpdateColor={handleUpdateColor}
               />
             </div>
           ) : null}
@@ -3391,31 +4205,31 @@ export function AgentsSidebar({
             onAnimationComplete={() => {
               hasFooterAnimated.current = true
             }}
-            className="p-2 flex flex-col gap-2"
+            className="px-3 py-2.5 flex flex-col gap-2"
           >
             {/* Selection info */}
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs text-muted-foreground">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">
                 {selectedChatsCount} selected
               </span>
               <button
                 onClick={clearChatSelection}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
               >
                 Cancel
               </button>
             </div>
 
             {/* Action buttons */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleBulkArchive}
                 disabled={archiveChatsBatchMutation.isPending}
-                className="flex-1 h-8 gap-1.5 text-xs rounded-lg"
+                className="flex-1 h-8 gap-2 text-[13px] rounded-lg"
               >
-                <ArchiveIcon className="h-3.5 w-3.5" />
+                <IconArchive size={14} stroke={1.5} />
                 {archiveChatsBatchMutation.isPending
                   ? "Archiving..."
                   : "Archive"}
@@ -3432,10 +4246,10 @@ export function AgentsSidebar({
             onAnimationComplete={() => {
               hasFooterAnimated.current = true
             }}
-            className="p-2 pt-2 flex flex-col gap-2"
+            className="px-3 py-2.5 flex flex-col gap-2"
           >
             <div className="flex items-center">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 {/* Settings Button */}
                 <Tooltip delayDuration={500}>
                   <TooltipTrigger asChild>
@@ -3445,9 +4259,9 @@ export function AgentsSidebar({
                         setSettingsActiveTab("preferences")
                         setSettingsDialogOpen(true)
                       }}
-                      className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                      className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
                     >
-                      <SettingsIcon className="h-4 w-4" />
+                      <SettingsIcon className="h-[18px] w-[18px]" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>Settings{settingsHotkey && <> <Kbd>{settingsHotkey}</Kbd></>}</TooltipContent>
@@ -3472,11 +4286,11 @@ export function AgentsSidebar({
               variant="outline"
               size="sm"
               className={cn(
-                "px-2 w-full hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground rounded-lg gap-1.5",
-                isMobileFullscreen ? "h-10" : "h-7",
+                "px-2.5 w-full hover:bg-foreground/[0.06] border-border/50 transition-[background-color,transform] duration-150 ease-out active:scale-[0.98] text-muted-foreground hover:text-foreground rounded-lg gap-2",
+                isMobileFullscreen ? "h-10" : "h-8",
               )}
             >
-              <span className="text-sm font-medium">Feedback</span>
+              <span className="text-[13px]">Feedback</span>
             </ButtonCustom>
           </motion.div>
         )}

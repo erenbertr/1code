@@ -1614,8 +1614,8 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(
 
             const newContents: Record<string, string> = {}
             for (const [key, result] of Object.entries(results)) {
-              if (result.ok) {
-                newContents[key] = result.content
+              if ((result as any).ok) {
+                newContents[key] = (result as any).content
               }
             }
             setFileContents(newContents)

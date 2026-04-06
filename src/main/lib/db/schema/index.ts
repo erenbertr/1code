@@ -51,6 +51,8 @@ export const chats = sqliteTable("chats", {
   // PR tracking fields
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
+  // Custom accent color for visual differentiation (hex string e.g. "#ef4444")
+  accentColor: text("accent_color"),
 }, (table) => [
   index("chats_worktree_path_idx").on(table.worktreePath),
 ])

@@ -7,8 +7,9 @@ import { useTheme } from "next-themes"
 import { useSetAtom, useAtomValue } from "jotai"
 import { toast } from "sonner"
 import { trpc } from "@/lib/trpc"
-import { terminalCwdAtom } from "./atoms"
+import { terminalCwdAtom, terminalFontSizeAtom } from "./atoms"
 import { fullThemeDataAtom } from "@/lib/atoms"
+import { getTerminalLineHeight } from "./config"
 import {
   createTerminalInstance,
   getDefaultTerminalBg,
@@ -56,6 +57,9 @@ export function Terminal({
   
   // VS Code theme data (if a full theme is selected)
   const fullThemeData = useAtomValue(fullThemeDataAtom)
+
+  // Terminal font size preference
+  const terminalFontSize = useAtomValue(terminalFontSizeAtom)
 
   // Ref for terminalCwd to avoid effect re-runs when cwd changes
   const terminalCwdRef = useRef(terminalCwd)
@@ -154,6 +158,7 @@ export function Terminal({
       {
         cwd: terminalCwdRef.current || cwd,
         isDark,
+        fontSize: terminalFontSize,
         onFileLinkClick: (path, line, column) => {
           console.log("[Terminal] File link clicked:", path, line, column)
           // TODO: Open file in editor
@@ -365,6 +370,20 @@ export function Terminal({
     }
   }, [isDark, fullThemeData])
 
+  // Update font size + line height live when the preference changes (without recreating terminal)
+  useEffect(() => {
+    if (xtermRef.current && fitAddonRef.current) {
+      xtermRef.current.options.fontSize = terminalFontSize
+      xtermRef.current.options.lineHeight = getTerminalLineHeight(terminalFontSize)
+      // Refit so column/row counts adjust to the new sizing
+      try {
+        fitAddonRef.current.fit()
+      } catch {
+        // FitAddon can throw if container has zero dimensions
+      }
+    }
+  }, [terminalFontSize])
+
   // Keyboard shortcut for search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -393,8 +412,7 @@ export function Terminal({
 
       // Get file paths (Electron exposes webUtils)
       const paths = files.map((file) => {
-        // @ts-expect-error - Electron's webUtils API
-        return window.webUtils?.getPathForFile?.(file) || file.name
+        return (window as any).webUtils?.getPathForFile?.(file) || file.name
       })
       const text = shellEscapePaths(paths)
 
