@@ -1005,6 +1005,16 @@ export const workspaceDiffCacheAtomFamily = atomFamily((chatId: string) =>
   ),
 )
 
+// Chat font size preference (persisted to localStorage)
+// Controls body text size in assistant responses and user message bubbles
+export type ChatFontSize = 12 | 13 | 14 | 15 | 16
+export const chatFontSizeAtom = atomWithStorage<ChatFontSize>(
+  "preferences:chat-font-size",
+  14, // Default matches previous hardcoded text-sm (14px)
+  undefined,
+  { getOnInit: true },
+)
+
 // Show raw JSON for each message in chat (dev only)
 export const showMessageJsonAtom = atomWithStorage<boolean>(
   "agents:showMessageJson",
