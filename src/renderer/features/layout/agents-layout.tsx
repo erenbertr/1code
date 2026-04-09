@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useMemo, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { toast } from "sonner"
 import { AnimatePresence, motion } from "motion/react"
-import { AlignJustify } from "lucide-react"
+import { IconLayoutSidebarLeftCollapse } from "@tabler/icons-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 
@@ -37,6 +37,10 @@ import { useUpdateChecker } from "../../lib/hooks/use-update-checker"
 import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
 import { QueueProcessor } from "../agents/components/queue-processor"
 import { SettingsSidebar } from "../settings/settings-sidebar"
+import {
+  TrafficLights,
+  TrafficLightSpacer,
+} from "../agents/components/traffic-light-spacer"
 
 // ============================================================================
 // Constants
@@ -44,7 +48,7 @@ import { SettingsSidebar } from "../settings/settings-sidebar"
 
 const SIDEBAR_MIN_WIDTH = 160
 const SIDEBAR_MAX_WIDTH = 400
-const SIDEBAR_ANIMATION_DURATION = 0.2
+const SIDEBAR_ANIMATION_DURATION = 0.25
 const SIDEBAR_CLOSE_HOTKEY = "⌘\\"
 
 // ============================================================================
@@ -161,7 +165,7 @@ export function AgentsLayout() {
     )
       return
 
-    window.desktopApi.setTrafficLightVisibility(sidebarOpen)
+    window.desktopApi.setTrafficLightVisibility(true)
   }, [sidebarOpen, isDesktop, isFullscreen, isSettingsView])
 
   const setChatId = useAgentSubChatStore((state) => state.setChatId)
@@ -308,6 +312,50 @@ export function AgentsLayout() {
       <div className="flex flex-col w-full h-full relative overflow-hidden bg-background select-none">
         {/* Windows Title Bar (only shown on Windows with frameless window) */}
         <WindowsTitleBar />
+
+        {/* Persistent title bar controls — always visible regardless of sidebar state */}
+        {isDesktop && !isFullscreen && !isSettingsView && (
+          <div className="absolute top-0 left-0 z-[60]" style={{ pointerEvents: "none" }}>
+            {/* Drag region covering title bar area */}
+            <div
+              className="absolute top-0 left-0 h-[32px]"
+              style={{
+                width: "140px",
+                // @ts-expect-error - WebKit-specific property
+                WebkitAppRegion: "drag",
+                pointerEvents: "auto",
+              }}
+            />
+
+            {/* No-drag zone over native traffic lights */}
+            <TrafficLights
+              isFullscreen={isFullscreen}
+              isDesktop={isDesktop}
+              className="absolute left-[15px] top-[12px]"
+            />
+
+            {/* Sidebar toggle — same icon & position whether open or closed */}
+            <div
+              className="absolute top-[8px] flex items-center gap-0.5"
+              style={{
+                left: 90,
+                // @ts-expect-error - WebKit-specific property
+                WebkitAppRegion: "no-drag",
+                pointerEvents: "auto",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSidebarOpen((prev) => !prev)}
+                className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground/50 hover:text-foreground hover:bg-foreground/[0.08] transition-colors duration-150"
+                aria-label="Toggle sidebar"
+              >
+                <IconLayoutSidebarLeftCollapse size={14} stroke={1.5} />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - switches between chat list and settings nav */}
           <ResizableSidebar
@@ -322,7 +370,7 @@ export function AgentsLayout() {
           initialWidth={0}
           exitWidth={0}
           showResizeTooltip={!isSettingsView}
-          className="overflow-hidden bg-background border-r"
+          className="overflow-hidden border-r bg-white/[0.03]"
           style={{ borderRightWidth: "0.5px" }}
         >
           {isSettingsView ? (
@@ -338,24 +386,10 @@ export function AgentsLayout() {
 
           {/* Main Content */}
           <div className="flex-1 overflow-hidden flex flex-col min-w-0 relative">
-            {/* Floating sidebar toggle - visible when sidebar is closed */}
-            <AnimatePresence>
-              {!isMobile && !sidebarOpen && !isSettingsView && (
-                <motion.button
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -8 }}
-                  transition={{ duration: 0.15 }}
-                  onClick={() => setSidebarOpen(true)}
-                  className="absolute top-2.5 left-2.5 z-50 h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors duration-150"
-                  aria-label="Open sidebar"
-                  // Account for macOS traffic light area in non-fullscreen
-                  style={isDesktop && !isFullscreen ? { top: "40px" } : undefined}
-                >
-                  <AlignJustify className="h-4 w-4" />
-                </motion.button>
-              )}
-            </AnimatePresence>
+            {/* Spacer for traffic lights when sidebar is closed */}
+            {isDesktop && !isFullscreen && !sidebarOpen && !isSettingsView && (
+              <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
+            )}
             <AgentsContent />
           </div>
         </div>

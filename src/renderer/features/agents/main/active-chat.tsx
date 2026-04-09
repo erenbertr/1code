@@ -2151,6 +2151,7 @@ const ChatViewInner = memo(function ChatViewInner({
 
   // tRPC utils for cache invalidation
   const utils = api.useUtils()
+  const trpcUtilsLocal = trpc.useUtils()
 
   // Get sub-chat name from store
   const subChatName = useAgentSubChatStore(
@@ -2186,6 +2187,10 @@ const ChatViewInner = memo(function ChatViewInner({
           subChatId,
           name: newName,
         })
+        // Invalidate parent chat query so sidebar sub-chat list refreshes
+        if (parentChatId) {
+          trpcUtilsLocal.chats.get.invalidate({ id: parentChatId })
+        }
       } catch {
         // Revert on error (toast shown by mutation onError)
         useAgentSubChatStore
@@ -2193,7 +2198,7 @@ const ChatViewInner = memo(function ChatViewInner({
           .updateSubChatName(subChatId, subChatNameRef.current || "New Chat")
       }
     },
-    [subChatId],
+    [subChatId, parentChatId, trpcUtilsLocal],
   )
 
   // Plan mode state (per-subChat using atomFamily)
@@ -7374,7 +7379,6 @@ Make sure to preserve all functionality from both branches when resolving confli
         },
         updateChatName: (chatIdToUpdate, name) => {
           // Optimistic update for sidebar (list query)
-          // On desktop, selectedTeamId is always null, so we update unconditionally
           utils.agents.getAgentChats.setData(
             { teamId: selectedTeamId },
             (old: any) => {
@@ -7392,6 +7396,15 @@ Make sure to preserve all functionality from both branches when resolving confli
               return { ...old, name }
             },
           )
+          // Also directly update the tRPC cache the sidebar reads from,
+          // and invalidate to guarantee a refetch
+          trpcUtils.chats.list.setData({}, (old) => {
+            if (!old) return old
+            return old.map((c) =>
+              c.id === chatIdToUpdate ? { ...c, name } : c,
+            )
+          })
+          trpcUtils.chats.list.invalidate()
         },
       })
     },
@@ -7403,6 +7416,7 @@ Make sure to preserve all functionality from both branches when resolving confli
       renameChatMutation,
       selectedTeamId,
       selectedOllamaModel,
+      trpcUtils.chats.list,
       utils.agents.getAgentChats,
       utils.agents.getAgentChat,
     ],

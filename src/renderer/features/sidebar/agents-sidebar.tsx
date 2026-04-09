@@ -42,7 +42,7 @@ import {
 import { usePrefetchLocalChat } from "../../lib/hooks/use-prefetch-local-chat"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
-import { IconChevronRight, IconArchive, IconPlus, IconFolder, IconSortDescending, IconSettings, IconX } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconFilter, IconLayoutGrid } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { useQuery } from "@tanstack/react-query"
 import { remoteTrpc } from "../../lib/remote-trpc"
@@ -75,11 +75,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../../components/ui/tooltip"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../components/ui/popover"
+// Popover imports removed — workspace settings now navigates to project settings page
 import { Kbd } from "../../components/ui/kbd"
 import {
   ContextMenu,
@@ -126,6 +122,7 @@ import {
   pendingUserQuestionsAtom,
   desktopViewAtom,
   expandedWorkspaceIdsAtom,
+  subChatFilesAtom,
   type UndoItem,
 } from "../agents/atoms"
 import { NetworkStatus } from "../../components/ui/network-status"
@@ -135,6 +132,7 @@ import { AgentsHelpPopover } from "../agents/components/agents-help-popover"
 import { getShortcutKey, isDesktopApp } from "../../lib/utils/platform"
 import { useResolvedHotkeyDisplay, useResolvedHotkeyDisplayWithAlt } from "../../lib/hotkeys"
 import { pluralize } from "../agents/utils/pluralize"
+import { formatTimeAgo } from "../agents/utils/format-time-ago"
 import { useNewChatDrafts, deleteNewChatDraft, type NewChatDraft } from "../agents/lib/drafts"
 import {
   TrafficLightSpacer,
@@ -422,14 +420,22 @@ const gridDotVariants = {
       ease: "easeInOut",
     },
   },
+  // Paused state — dots visible at rest, no animation
+  paused: {
+    opacity: 0.6,
+    scale: 1,
+    transition: { duration: 0.3, ease: "easeOut" },
+  },
 }
 
 const GridPulseSpinner = React.memo(function GridPulseSpinner({
   size = 10,
   className,
+  paused = false,
 }: {
   size?: number
   className?: string
+  paused?: boolean
 }) {
   // Each dot is ~38% of container to leave gaps
   const dotSize = Math.max(1, Math.round(size * 0.38))
@@ -437,8 +443,8 @@ const GridPulseSpinner = React.memo(function GridPulseSpinner({
 
   return (
     <motion.div
-      animate="pulse"
-      transition={{ staggerChildren: 0.15 }}
+      animate={paused ? "paused" : "pulse"}
+      transition={{ staggerChildren: paused ? 0 : 0.15 }}
       className={cn("inline-grid grid-cols-2 items-center justify-items-center", className)}
       style={{ width: size, height: size, gap }}
     >
@@ -451,146 +457,6 @@ const GridPulseSpinner = React.memo(function GridPulseSpinner({
         />
       ))}
     </motion.div>
-  )
-})
-
-// ── Accent Color Palette ────────────────────────────────────────────────
-// 16 Tailwind 500-level colors as hex values for workspace color coding
-const ACCENT_COLORS = [
-  { hex: "#ef4444", name: "Red" },
-  { hex: "#f97316", name: "Orange" },
-  { hex: "#f59e0b", name: "Amber" },
-  { hex: "#eab308", name: "Yellow" },
-  { hex: "#84cc16", name: "Lime" },
-  { hex: "#22c55e", name: "Green" },
-  { hex: "#10b981", name: "Emerald" },
-  { hex: "#14b8a6", name: "Teal" },
-  { hex: "#06b6d4", name: "Cyan" },
-  { hex: "#0ea5e9", name: "Sky" },
-  { hex: "#3b82f6", name: "Blue" },
-  { hex: "#6366f1", name: "Indigo" },
-  { hex: "#8b5cf6", name: "Violet" },
-  { hex: "#a855f7", name: "Purple" },
-  { hex: "#d946ef", name: "Fuchsia" },
-  { hex: "#ec4899", name: "Pink" },
-] as const
-
-// ── Workspace Settings Popover ──────────────────────────────────────────
-// Inline rename + accent color swatch grid — opens from gear icon on workspace hover
-const WorkspaceSettingsPopover = React.memo(function WorkspaceSettingsPopover({
-  chatId,
-  chatName,
-  accentColor,
-  onUpdateColor,
-  onRenameSave,
-}: {
-  chatId: string
-  chatName: string | null
-  accentColor: string | null | undefined
-  onUpdateColor: (chatId: string, color: string | null) => void
-  onRenameSave: (name: string) => Promise<void>
-}) {
-  const [nameValue, setNameValue] = useState(chatName || "")
-  const [isSaving, setIsSaving] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  // Sync name when popover opens with a new chat
-  useEffect(() => {
-    setNameValue(chatName || "")
-  }, [chatName])
-
-  // Auto-focus the input when popover opens
-  useEffect(() => {
-    const timer = setTimeout(() => inputRef.current?.select(), 50)
-    return () => clearTimeout(timer)
-  }, [])
-
-  // Save the rename on blur or Enter
-  const handleSaveName = useCallback(async () => {
-    const trimmed = nameValue.trim()
-    if (!trimmed || trimmed === chatName) return
-    setIsSaving(true)
-    try {
-      await onRenameSave(trimmed)
-    } finally {
-      setIsSaving(false)
-    }
-  }, [nameValue, chatName, onRenameSave])
-
-  return (
-    <div className="space-y-3">
-      {/* Rename input */}
-      <div>
-        <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1.5 block">
-          Name
-        </label>
-        <input
-          ref={inputRef}
-          type="text"
-          value={nameValue}
-          onChange={(e) => setNameValue(e.target.value)}
-          onBlur={handleSaveName}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault()
-              handleSaveName()
-              ;(e.target as HTMLInputElement).blur()
-            }
-            if (e.key === "Escape") {
-              setNameValue(chatName || "")
-              ;(e.target as HTMLInputElement).blur()
-            }
-          }}
-          disabled={isSaving}
-          className={cn(
-            "w-full px-2.5 py-1.5 text-[13px] rounded-lg border border-border bg-background/50",
-            "outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring/50",
-            "text-foreground placeholder:text-muted-foreground/30",
-            "transition-colors duration-100",
-          )}
-          placeholder="Workspace name"
-        />
-      </div>
-
-      {/* Accent color grid */}
-      <div>
-        <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1.5 block">
-          Accent Color
-        </label>
-        <div className="grid grid-cols-8 gap-2">
-          {/* Clear/none swatch */}
-          <button
-            onClick={() => onUpdateColor(chatId, null)}
-            className={cn(
-              "w-6 h-6 rounded-full border border-border/50 flex items-center justify-center",
-              "hover:border-foreground/30 transition-colors duration-100",
-              !accentColor && "ring-2 ring-foreground/40 ring-offset-1 ring-offset-background",
-            )}
-            aria-label="Clear accent color"
-            title="None"
-          >
-            <IconX size={9} stroke={2} className="text-muted-foreground/40" />
-          </button>
-          {/* Color swatches */}
-          {ACCENT_COLORS.map((color) => (
-            <button
-              key={color.hex}
-              onClick={() => onUpdateColor(chatId, color.hex)}
-              className={cn(
-                "w-6 h-6 rounded-full transition-all duration-100",
-                "hover:scale-110",
-                accentColor === color.hex
-                  ? "ring-2 ring-foreground/40 ring-offset-1 ring-offset-background"
-                  : "hover:ring-1 hover:ring-foreground/20 hover:ring-offset-1 hover:ring-offset-background",
-              )}
-              style={{ backgroundColor: color.hex }}
-              aria-label={color.name}
-              title={color.name}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
   )
 })
 
@@ -645,7 +511,9 @@ const AgentChatItem = React.memo(function AgentChatItem({
   isJustCreated,
   onCreateSubChat,
   accentColor,
-  onUpdateColor,
+  onNavigateToSettings,
+  isExpanded,
+  onToggleExpand,
 }: {
   chatId: string
   chatName: string | null
@@ -696,21 +564,12 @@ const AgentChatItem = React.memo(function AgentChatItem({
   isJustCreated: boolean
   onCreateSubChat?: (chatId: string) => void
   accentColor?: string | null
-  onUpdateColor?: (chatId: string, color: string | null) => void
+  onNavigateToSettings?: (chatProjectId: string) => void
+  isExpanded?: boolean
+  onToggleExpand?: () => void
 }) {
   // Resolved hotkey for context menu
   const archiveWorkspaceHotkey = useResolvedHotkeyDisplay("archive-workspace")
-
-  // Settings popover state
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-
-  // Rename handler that delegates to the parent's rename mutation
-  const renameChatMutation = trpc.chats.rename.useMutation()
-  const utils = trpc.useUtils()
-  const handlePopoverRename = useCallback(async (name: string) => {
-    await renameChatMutation.mutateAsync({ id: chatId, name })
-    utils.chats.list.invalidate()
-  }, [chatId, renameChatMutation, utils.chats.list])
 
   return (
     <ContextMenu>
@@ -747,12 +606,11 @@ const AgentChatItem = React.memo(function AgentChatItem({
             backgroundColor: `${accentColor}0a`, // ~4% opacity tint
           } : undefined}
           className={cn(
-            "w-full text-left py-1.5 cursor-pointer group relative",
-            "transition-colors duration-100",
+            "w-full text-left py-1 cursor-pointer group relative",
+            "transition-[background-color,color,border-color] duration-150 ease-out",
             "outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70",
             // Accent color left border when set
             accentColor ? "border-l-2 rounded-r-md" : "",
-            // No background on workspace rows — only threads get selected bg (Codex style)
             isMultiSelectMode ? "px-3" : "pl-0.5 pr-1",
             isChecked &&
               (isMobileFullscreen
@@ -770,49 +628,64 @@ const AgentChatItem = React.memo(function AgentChatItem({
                 />
               </div>
             ) : (
-              <div className="relative flex-shrink-0">
-                {/* GitHub avatar circle when available, folder icon fallback */}
-                {gitOwner && gitProvider === "github" ? (
-                  <GitHubAvatar
-                    gitOwner={gitOwner}
-                    className={cn(
-                      "h-[18px] w-[18px] rounded-full",
-                      isSelected ? "opacity-100" : "opacity-70",
-                    )}
-                  />
-                ) : (
-                  <IconFolder
-                    size={16}
-                    stroke={1.5}
-                    className={cn(
-                      "transition-colors duration-100",
-                      isSelected ? "text-foreground" : "text-muted-foreground/50",
-                    )}
-                  />
-                )}
-                {/* Status badge — question, loading, unseen, plan */}
-                {(hasPendingQuestion || isLoading || hasUnseenChanges || hasPendingPlan) && (
-                  <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full flex items-center justify-center">
-                    {hasPendingQuestion ? (
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    ) : isLoading ? (
-                      <LoadingDot isLoading={true} className="w-2 h-2 text-muted-foreground" />
-                    ) : hasPendingPlan ? (
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                    )}
-                  </div>
+              <div
+                className="relative flex-shrink-0 group/folder cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleExpand?.()
+                }}
+              >
+                {/* Default icon (avatar or folder); chevron replaces it on hover */}
+                <div className="group-hover/folder:hidden">
+                  {gitOwner && gitProvider === "github" ? (
+                    <GitHubAvatar
+                      gitOwner={gitOwner}
+                      className={cn(
+                        "h-[15px] w-[15px] rounded-full",
+                        isSelected ? "opacity-90" : "opacity-50",
+                      )}
+                    />
+                  ) : isExpanded ? (
+                    <IconFolderOpen
+                      size={15}
+                      stroke={1.5}
+                      className={cn(
+                        "transition-colors duration-150",
+                        isSelected ? "text-foreground/90" : "text-muted-foreground/50",
+                      )}
+                    />
+                  ) : (
+                    <IconFolder
+                      size={15}
+                      stroke={1.5}
+                      className={cn(
+                        "transition-colors duration-150",
+                        isSelected ? "text-foreground/90" : "text-muted-foreground/50",
+                      )}
+                    />
+                  )}
+                </div>
+                {/* Chevron on hover — up when expanded, down when collapsed */}
+                <div className="hidden group-hover/folder:block">
+                  {isExpanded ? (
+                    <IconChevronUp size={15} stroke={1.5} className="text-muted-foreground/60" />
+                  ) : (
+                    <IconChevronDown size={15} stroke={1.5} className="text-muted-foreground/60" />
+                  )}
+                </div>
+                {/* Status badge — only show for pending questions (Codex-minimal) */}
+                {hasPendingQuestion && (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500" />
                 )}
               </div>
             )}
-            {/* Name + subtitle column */}
+            {/* Workspace name — Codex style, no subtitle */}
             <div className="flex-1 min-w-0">
               <span
                 ref={(el) => nameRefCallback(chatId, el)}
                 className={cn(
                   "truncate block text-[13px] leading-snug",
-                  isSelected ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
+                  isSelected ? "text-foreground font-medium" : "text-muted-foreground/80 group-hover:text-foreground",
                 )}
               >
                 <TypewriterText
@@ -823,19 +696,21 @@ const AgentChatItem = React.memo(function AgentChatItem({
                   showPlaceholder={true}
                 />
               </span>
-              {/* Subtitle: repo · branch or project path — helps differentiate workspaces */}
-              {displayText && (
-                <span className="truncate block text-[11px] leading-tight text-muted-foreground/35 mt-px">
-                  {displayText}
-                </span>
-              )}
             </div>
-            {/* Workspace hover actions — plus + settings + archive */}
+            {/* Workspace hover actions — Codex style: three dots + new thread */}
             {!isMultiSelectMode && !isMobileFullscreen && (
-              <div className={cn(
-                "flex-shrink-0 flex items-center gap-0 transition-opacity duration-100",
-                isSettingsOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-              )}>
+              <div className="flex-shrink-0 flex items-center gap-0.5 transition-[opacity,transform] duration-150 ease-out opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRenameClick({ id: chatId, name: chatName, isRemote })
+                  }}
+                  tabIndex={-1}
+                  className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.08] transition-[background-color,color] duration-150 ease-out"
+                  aria-label="More options"
+                >
+                  <IconDots size={14} stroke={1.8} />
+                </button>
                 {onCreateSubChat && (
                   <button
                     onClick={(e) => {
@@ -843,54 +718,12 @@ const AgentChatItem = React.memo(function AgentChatItem({
                       onCreateSubChat(chatId)
                     }}
                     tabIndex={-1}
-                    className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06] transition-colors duration-100"
+                    className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.08] transition-[background-color,color] duration-150 ease-out"
                     aria-label="New thread"
                   >
-                    <IconPlus size={14} stroke={1.8} />
+                    <IconEdit size={13} stroke={1.8} />
                   </button>
                 )}
-                {/* Settings gear — opens popover with rename + color picker */}
-                <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      tabIndex={-1}
-                      className={cn(
-                        "flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-100",
-                        isSettingsOpen ? "text-foreground bg-foreground/[0.06]" : "text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06]",
-                      )}
-                      aria-label="Workspace settings"
-                    >
-                      <IconSettings size={14} stroke={1.8} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="right"
-                    align="start"
-                    sideOffset={12}
-                    className="w-[240px] p-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <WorkspaceSettingsPopover
-                      chatId={chatId}
-                      chatName={chatName}
-                      accentColor={accentColor}
-                      onUpdateColor={onUpdateColor || (() => {})}
-                      onRenameSave={handlePopoverRename}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onArchive(chatId)
-                  }}
-                  tabIndex={-1}
-                  className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-foreground/[0.06] transition-colors duration-100"
-                  aria-label="Archive workspace"
-                >
-                  <IconArchive size={14} stroke={1.8} />
-                </button>
               </div>
             )}
           </div>
@@ -1007,6 +840,9 @@ const SubChatItem = React.memo(function SubChatItem({
   onSelect,
   onArchive,
   accentColor,
+  additions,
+  deletions,
+  updatedAt,
 }: {
   subChat: SubChatMeta
   isActive: boolean
@@ -1015,7 +851,14 @@ const SubChatItem = React.memo(function SubChatItem({
   onSelect: (subChat: SubChatMeta) => void
   onArchive: (subChatId: string) => void
   accentColor?: string | null
+  additions?: number
+  deletions?: number
+  updatedAt?: string
 }) {
+  // Show metadata line if we have file stats or a timestamp
+  const hasStats = (additions ?? 0) > 0 || (deletions ?? 0) > 0
+  const hasMetadata = hasStats || !!updatedAt
+
   return (
     <div
       onClick={() => onSelect(subChat)}
@@ -1024,43 +867,53 @@ const SubChatItem = React.memo(function SubChatItem({
         backgroundColor: isActive ? `${accentColor}12` : undefined, // Stronger tint when active
       } : undefined}
       className={cn(
-        "w-full text-left py-[7px] pl-[22px] pr-2 cursor-pointer group/subchat relative",
-        "transition-colors duration-150 rounded-lg",
+        "w-full text-left py-[6px] pl-[20px] pr-2 cursor-pointer group/subchat relative",
+        "transition-[background-color,color,border-color,opacity,transform] duration-150 ease-out rounded-md",
         // Accent color left border for visual grouping
         accentColor ? "border-l-2 rounded-l-none" : "",
         isActive
           ? accentColor ? "text-foreground" : "bg-foreground/[0.08] text-foreground"
-          : "text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground",
+          : "text-muted-foreground/70 hover:bg-foreground/[0.05] hover:text-foreground",
       )}
     >
       <div className="flex items-center gap-2">
-        {/* Status indicator: grid pulse spinner when loading, dot for unseen */}
+        {/* Thread status indicator — always visible: animated when loading, paused when idle */}
         <div className="flex-shrink-0 w-[10px] flex items-center justify-center">
-          {isLoading ? (
-            <GridPulseSpinner size={10} className="text-muted-foreground" />
-          ) : hasUnseenChanges ? (
+          {hasUnseenChanges ? (
             <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
           ) : (
-            <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
+            <GridPulseSpinner
+              size={10}
+              className={cn(
+                isLoading ? "text-muted-foreground" : isActive ? "text-muted-foreground/30" : "text-muted-foreground/15",
+              )}
+              paused={!isLoading}
+            />
           )}
         </div>
         <span className={cn(
-          "truncate text-[13px] leading-snug flex-1",
+          "truncate text-[12px] leading-snug flex-1",
           isActive ? "font-medium text-foreground" : "",
         )}>
           {subChat.name || "New Chat"}
         </span>
-        {/* Archive button on hover */}
+        {/* Time ago — Codex style, right-aligned, fades out on hover */}
+        {updatedAt && (
+          <span className="flex-shrink-0 text-[11px] text-muted-foreground/45 tabular-nums transition-[background-color,color,border-color,opacity,transform] duration-150 ease-out group-hover/subchat:opacity-0 group-hover/subchat:-translate-x-1">
+            {formatTimeAgo(updatedAt)}
+          </span>
+        )}
+        {/* Archive button on hover — slides in from right */}
         <button
           onClick={(e) => {
             e.stopPropagation()
             onArchive(subChat.id)
           }}
           tabIndex={-1}
-          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/30 hover:text-foreground hover:bg-foreground/[0.06] transition-[opacity,color,background-color] duration-100 opacity-0 group-hover/subchat:opacity-100"
+          className="absolute right-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-foreground/70 hover:bg-foreground/[0.08] transition-[background-color,color,border-color,opacity,transform] duration-150 ease-out opacity-0 translate-x-1 group-hover/subchat:opacity-100 group-hover/subchat:translate-x-0 active:scale-90"
           aria-label="Archive thread"
         >
-          <IconArchive size={13} stroke={1.8} />
+          <IconArchive size={12} stroke={1.8} />
         </button>
       </div>
     </div>
@@ -1211,6 +1064,7 @@ const WorkspaceSubChats = React.memo(function WorkspaceSubChats({
   const utils = trpc.useUtils()
   const loadingSubChats = useAtomValue(loadingSubChatsAtom)
   const unseenChanges = useAtomValue(agentsSubChatUnseenChangesAtom)
+  const subChatFiles = useAtomValue(subChatFilesAtom)
   const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId)
   const selectedChatId = useAtomValue(selectedAgentChatIdAtom)
 
@@ -1272,7 +1126,7 @@ const WorkspaceSubChats = React.memo(function WorkspaceSubChats({
     return (
       <div className="py-px space-y-px">
         {[1, 2].map((i) => (
-          <div key={i} className="pl-[22px] pr-2 py-[7px]">
+          <div key={i} className="pl-[20px] pr-2 py-[6px]">
             <Skeleton
               className="h-[14px] rounded-sm"
               style={{ width: i === 1 ? "65%" : "45%" }}
@@ -1285,8 +1139,8 @@ const WorkspaceSubChats = React.memo(function WorkspaceSubChats({
 
   if (!chatData?.subChats || chatData.subChats.length === 0) {
     return (
-      <div className="pl-[22px] pr-2 py-[7px]">
-        <span className="text-[12px] text-muted-foreground/25 italic">No threads</span>
+      <div className="pl-[20px] pr-2 py-[5px]">
+        <span className="text-[11px] text-muted-foreground/40 italic">No threads</span>
       </div>
     )
   }
@@ -1305,36 +1159,50 @@ const WorkspaceSubChats = React.memo(function WorkspaceSubChats({
         variants={{
           collapsed: {},
           open: {
-            transition: { staggerChildren: 0.035, delayChildren: 0.02 },
+            transition: { staggerChildren: 0.04, delayChildren: 0.03 },
           },
         }}
       >
-        {subChats.map((sc) => (
-          <motion.div
-            key={sc.id}
-            variants={{
-              collapsed: { opacity: 0, y: -4 },
-              open: { opacity: 1, y: 0 },
-            }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-          >
-            <SubChatItem
-              subChat={{
-                id: sc.id,
-                name: sc.name ?? "New Chat",
-                created_at: sc.createdAt?.toISOString() ?? new Date().toISOString(),
-                updated_at: sc.updatedAt?.toISOString() ?? undefined,
-                mode: sc.mode as "agent" | "plan" | undefined,
+        {subChats.map((sc) => {
+          // Compute file change stats from subChatFilesAtom
+          const fileChanges = subChatFiles.get(sc.id) || []
+          const stats = fileChanges.length > 0
+            ? fileChanges.reduce(
+                (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
+                { additions: 0, deletions: 0 },
+              )
+            : null
+
+          return (
+            <motion.div
+              key={sc.id}
+              variants={{
+                collapsed: { opacity: 0, y: -3 },
+                open: { opacity: 1, y: 0 },
               }}
-              isActive={selectedChatId === chatId && activeSubChatId === sc.id}
-              isLoading={loadingSubChats.has(sc.id)}
-              hasUnseenChanges={unseenChanges.has(sc.id)}
-              onSelect={(subChat) => onSubChatSelect(chatId, subChat, isRemote)}
-              onArchive={handleArchiveSubChat}
-              accentColor={accentColor}
-            />
-          </motion.div>
-        ))}
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <SubChatItem
+                subChat={{
+                  id: sc.id,
+                  name: sc.name ?? "New Chat",
+                  created_at: sc.createdAt?.toISOString() ?? new Date().toISOString(),
+                  updated_at: sc.updatedAt?.toISOString() ?? undefined,
+                  mode: sc.mode as "agent" | "plan" | undefined,
+                }}
+                isActive={selectedChatId === chatId && activeSubChatId === sc.id}
+                isLoading={loadingSubChats.has(sc.id)}
+                hasUnseenChanges={unseenChanges.has(sc.id)}
+                onSelect={(subChat) => onSubChatSelect(chatId, subChat, isRemote)}
+                onArchive={handleArchiveSubChat}
+                accentColor={accentColor}
+                additions={stats?.additions}
+                deletions={stats?.deletions}
+                updatedAt={sc.updatedAt?.toISOString() ?? undefined}
+              />
+            </motion.div>
+          )
+        })}
       </motion.div>
 
       {/* Thread archive confirmation dialog */}
@@ -1369,6 +1237,7 @@ function chatListSectionPropsAreEqual(
   if (prevProps.isMobileFullscreen !== nextProps.isMobileFullscreen) return false
   if (prevProps.isDesktop !== nextProps.isDesktop) return false
   if (prevProps.showIcon !== nextProps.showIcon) return false
+  if (prevProps.showHeader !== nextProps.showHeader) return false
 
   // Check arrays by reference (they're stable from useMemo in parent)
   if (prevProps.chats !== nextProps.chats) return false
@@ -1400,6 +1269,7 @@ function chatListSectionPropsAreEqual(
 
 interface ChatListSectionProps {
   title: string
+  showHeader?: boolean
   chats: Array<{
     id: string
     name: string | null
@@ -1423,7 +1293,7 @@ interface ChatListSectionProps {
   isMobileFullscreen: boolean
   isDesktop: boolean
   pinnedChatIds: Set<string>
-  projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name?: string | null; path?: string | null }>
+  projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name?: string | null; path?: string | null; accentColor?: string | null }>
   workspaceFileStats: Map<string, { fileCount: number; additions: number; deletions: number }>
   filteredChats: Array<{ id: string }>
   canShowPinOption: boolean
@@ -1451,6 +1321,7 @@ interface ChatListSectionProps {
   // Hierarchical expand/collapse props
   expandedSet: Set<string>
   onToggleExpand: (chatId: string) => void
+  onCollapseAll?: () => void
   onSubChatSelect: (workspaceId: string, subChat: SubChatMeta, isRemote: boolean) => void
   onCreateSubChat: (workspaceId: string) => void
   searchQuery?: string
@@ -1458,7 +1329,7 @@ interface ChatListSectionProps {
   sortMode: "recent" | "alpha"
   onToggleSort: () => void
   // Accent color
-  onUpdateColor: (chatId: string, color: string | null) => void
+  onNavigateToSettings: (projectId: string) => void
 }
 
 // Memoized Chat List Section component
@@ -1504,16 +1375,18 @@ const ChatListSection = React.memo(function ChatListSection({
   justCreatedIds,
   expandedSet,
   onToggleExpand,
+  onCollapseAll,
   onSubChatSelect,
   onCreateSubChat,
   searchQuery,
   sortMode,
   onToggleSort,
-  onUpdateColor,
+  onNavigateToSettings,
+  showHeader = true,
 }: ChatListSectionProps) {
   if (chats.length === 0) return null
 
-  // When searching, auto-expand all workspaces so sub-chats are visible and filterable
+  // Auto-expand all when searching, otherwise respect user toggle
   const effectiveExpandedSet = useMemo(() => {
     if (searchQuery?.trim()) {
       const allIds = new Set(expandedSet)
@@ -1532,42 +1405,74 @@ const ChatListSection = React.memo(function ChatListSection({
 
   return (
     <>
-      <div
-        className={cn(
-          "flex items-center h-7 mb-0.5 mt-3 first:mt-0",
-          isMultiSelectMode ? "pl-3 pr-2" : "pl-1 pr-1",
-        )}
-      >
-        <h3 className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap flex-1">
-          {title}
-        </h3>
-        {/* Section action icons — sort toggle */}
-        {!isMultiSelectMode && (
-          <div className="flex items-center gap-0.5">
-            <Tooltip delayDuration={500}>
-              <TooltipTrigger asChild>
-                <button
-                  tabIndex={-1}
-                  onClick={onToggleSort}
-                  className={cn(
-                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors duration-100",
-                    sortMode === "alpha"
-                      ? "text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.06]"
-                      : "text-muted-foreground/25 hover:text-muted-foreground/60 hover:bg-foreground/[0.04]",
-                  )}
-                  aria-label={sortMode === "recent" ? "Sort alphabetically" : "Sort by recent"}
-                >
-                  <IconSortDescending size={14} stroke={1.5} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="text-xs">
-                {sortMode === "recent" ? "Sort A-Z" : "Sort by recent"}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-      </div>
-      <div className="list-none p-0 m-0 mb-2 space-y-px">
+      {showHeader && (
+        <div
+          className={cn(
+            "flex items-center h-7 mb-1 mt-3 first:mt-0",
+            isMultiSelectMode ? "pl-3 pr-2" : "pl-1 pr-0.5",
+          )}
+        >
+          <h3 className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-widest whitespace-nowrap flex-1">
+            Threads
+          </h3>
+          {/* Codex-style action icons — collapse all, sort, new workspace */}
+          {!isMultiSelectMode && (
+            <div className="flex items-center gap-0.5">
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <button
+                    tabIndex={-1}
+                    onClick={onCollapseAll}
+                    className="flex items-center justify-center w-[22px] h-[22px] rounded text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-foreground/[0.06] transition-[background-color,color] duration-150 ease-out"
+                    aria-label="Collapse all"
+                  >
+                    <IconArrowsDiagonalMinimize2 size={14} stroke={1.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  Collapse all
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <button
+                    tabIndex={-1}
+                    onClick={onToggleSort}
+                    className={cn(
+                      "flex items-center justify-center w-[22px] h-[22px] rounded transition-[background-color,color] duration-150 ease-out",
+                      sortMode === "alpha"
+                        ? "text-muted-foreground/60 hover:text-foreground/80 hover:bg-foreground/[0.08]"
+                        : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-foreground/[0.06]",
+                    )}
+                    aria-label={sortMode === "recent" ? "Sort alphabetically" : "Sort by recent"}
+                  >
+                    <IconSortDescending size={14} stroke={1.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  {sortMode === "recent" ? "Sort A-Z" : "Sort by recent"}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <button
+                    tabIndex={-1}
+                    onClick={() => onCreateSubChat("")}
+                    className="flex items-center justify-center w-[22px] h-[22px] rounded text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-foreground/[0.06] transition-[background-color,color] duration-150 ease-out"
+                    aria-label="New workspace"
+                  >
+                    <IconFolderPlus size={14} stroke={1.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  New workspace
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="list-none p-0 m-0 mb-3 space-y-px">
         {chats.map((chat) => {
           const isLoading = loadingChatIds.has(chat.id)
           // For remote chats, compare without prefix; for local, compare directly
@@ -1605,6 +1510,8 @@ const ChatListSection = React.memo(function ChatListSection({
           const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
           const isLastInFilteredChats = globalIndex === filteredChats.length - 1
           const isJustCreated = justCreatedIds.has(chat.id)
+          // Derive accent color from the project (set in project settings)
+          const accentColor = project?.accentColor ?? null
 
           // For remote chats, extract gitOwner from meta.repository (e.g. "owner/repo" -> "owner")
           const gitOwner = chat.isRemote
@@ -1617,22 +1524,10 @@ const ChatListSection = React.memo(function ChatListSection({
               <div
                 className="flex items-center relative cursor-pointer"
                 onClick={(e) => {
-                  // Clicking the workspace row toggles expand + selects
                   e.stopPropagation()
-                  onToggleExpand(chat.id)
+                  onChatClick(chat.id, e)
                 }}
               >
-                {/* Chevron integrated into workspace row */}
-                {!isMultiSelectMode && (
-                  <IconChevronRight
-                    size={11}
-                    stroke={1.5}
-                    className={cn(
-                      "flex-shrink-0 text-muted-foreground/30 transition-transform duration-200 ease-out mr-0.5",
-                      effectiveExpandedSet.has(chat.id) && "rotate-90",
-                    )}
-                  />
-                )}
                 <div className="flex-1 min-w-0">
                   <AgentChatItem
                     chatId={chat.id}
@@ -1642,6 +1537,8 @@ const ChatListSection = React.memo(function ChatListSection({
                     chatProjectId={chat.projectId ?? ""}
                     globalIndex={globalIndex}
                     isSelected={isSelected}
+                    isExpanded={effectiveExpandedSet.has(chat.id)}
+                    onToggleExpand={() => onToggleExpand(chat.id)}
                     isLoading={isLoading}
                     hasUnseenChanges={unseenChanges.has(chat.id)}
                     hasPendingPlan={hasPendingPlan}
@@ -1683,8 +1580,8 @@ const ChatListSection = React.memo(function ChatListSection({
                     formatTime={formatTime}
                     isJustCreated={isJustCreated}
                     onCreateSubChat={() => onCreateSubChat(chat.isRemote ? chat.id.replace(/^remote_/, '') : chat.id)}
-                    accentColor={chat.accentColor}
-                    onUpdateColor={onUpdateColor}
+                    accentColor={accentColor}
+                    onNavigateToSettings={onNavigateToSettings}
                   />
                 </div>
               </div>
@@ -1697,8 +1594,8 @@ const ChatListSection = React.memo(function ChatListSection({
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{
-                      height: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
-                      opacity: { duration: 0.15, ease: "easeOut" },
+                      height: { duration: 0.25, ease: [0.16, 1, 0.3, 1] },
+                      opacity: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
                     }}
                     className="overflow-hidden"
                   >
@@ -1708,7 +1605,7 @@ const ChatListSection = React.memo(function ChatListSection({
                         isRemote={chat.isRemote}
                         searchQuery={searchQuery}
                         onSubChatSelect={onSubChatSelect}
-                        accentColor={chat.accentColor}
+                        accentColor={accentColor}
                       />
                     </div>
                   </motion.div>
@@ -1855,13 +1752,13 @@ const InboxButton = memo(function InboxButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-[13px] transition-colors duration-150",
+        "flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-[background-color,color,border-color,opacity,transform] duration-150 ease-out border border-border/50",
         isActive
-          ? "bg-foreground/[0.07] text-foreground"
-          : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+          ? "bg-foreground/[0.08] text-foreground/90 border-border/60"
+          : "text-muted-foreground/80 hover:bg-foreground/[0.06] hover:text-foreground hover:border-border/70 active:scale-[0.98]",
       )}
     >
-      <SidebarInboxIcon className="h-[18px] w-[18px]" />
+      <SidebarInboxIcon className="h-4 w-4 flex-shrink-0" />
       <span className="flex-1 text-left font-medium">Inbox</span>
       {inboxUnreadCount > 0 && (
         <span className="bg-muted text-muted-foreground text-xs font-medium px-1.5 py-0.5 rounded-md min-w-[20px] text-center">
@@ -1887,11 +1784,11 @@ const AutomationsButton = memo(function AutomationsButton() {
       type="button"
       onClick={handleClick}
       className={cn(
-        "group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-[13px] transition-colors duration-150",
-        "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+        "group flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-[background-color,color,border-color,opacity,transform] duration-150 ease-out border border-border/50",
+        "text-muted-foreground/80 hover:bg-foreground/[0.06] hover:text-foreground hover:border-border/70 active:scale-[0.98]",
       )}
     >
-      <SidebarAutomationsIcon className="h-[18px] w-[18px]" />
+      <SidebarAutomationsIcon className="h-4 w-4 flex-shrink-0" />
       <span className="flex-1 text-left font-medium">Automations</span>
       <ArrowUpRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150" />
     </button>
@@ -1957,316 +1854,51 @@ interface SidebarHeaderProps {
   handleSidebarMouseEnter: () => void
   handleSidebarMouseLeave: (e: React.MouseEvent) => void
   closeButtonRef: React.RefObject<HTMLDivElement | null>
+  onSearchClick?: () => void
 }
 
 const SidebarHeader = memo(function SidebarHeader({
   isDesktop,
   isFullscreen,
   isMobileFullscreen,
-  userId,
-  desktopUser,
-  onSignOut,
-  onToggleSidebar,
-  setSettingsDialogOpen,
-  setSettingsActiveTab,
-  setShowAuthDialog,
   handleSidebarMouseEnter,
   handleSidebarMouseLeave,
-  closeButtonRef,
+  onSearchClick,
 }: SidebarHeaderProps) {
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
-  const toggleSidebarHotkey = useResolvedHotkeyDisplay("toggle-sidebar")
-
   return (
     <div
       className="relative flex-shrink-0"
       onMouseEnter={handleSidebarMouseEnter}
       onMouseLeave={handleSidebarMouseLeave}
     >
-      {/* Draggable area for window movement - background layer (hidden in fullscreen) */}
+      {/* Spacer for macOS traffic lights — pushes sidebar content below the title bar */}
+      <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
+
+      {/* Search icon — positioned in the title bar row, right of the layout toggle (managed by AgentsLayout) */}
       {isDesktop && !isFullscreen && (
         <div
-          className="absolute inset-x-0 top-0 h-[32px] z-0"
+          className="absolute top-[8px] z-10"
           style={{
-            // @ts-expect-error - WebKit-specific property
-            WebkitAppRegion: "drag",
-          }}
-          data-sidebar-content
-        />
-      )}
-
-      {/* No-drag zone over native traffic lights */}
-      <TrafficLights
-        isFullscreen={isFullscreen}
-        isDesktop={isDesktop}
-        className="absolute left-[15px] top-[12px] z-20"
-      />
-
-      {/* Close button - positioned at top right */}
-      {!isMobileFullscreen && (
-        <div
-          ref={closeButtonRef}
-          className={cn(
-            "absolute right-2 z-20 transition-opacity duration-150",
-            "top-2",
-          )}
-          style={{
-            opacity: isDropdownOpen ? 1 : 0,
+            left: 118,
             // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >
           <Tooltip delayDuration={500}>
             <TooltipTrigger asChild>
-              <ButtonCustom
-                variant="ghost"
-                size="icon"
-                onClick={onToggleSidebar}
-                tabIndex={-1}
-                className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground flex-shrink-0 rounded-md"
-                aria-label="Close sidebar"
+              <button
+                type="button"
+                onClick={onSearchClick}
+                className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground/50 hover:text-foreground hover:bg-foreground/[0.08] transition-colors duration-150"
+                aria-label="Search"
               >
-                <IconDoubleChevronLeft className="h-4 w-4" />
-              </ButtonCustom>
+                <IconSearch size={14} stroke={1.5} />
+              </button>
             </TooltipTrigger>
-            <TooltipContent>
-              Close sidebar
-              {toggleSidebarHotkey && <Kbd>{toggleSidebarHotkey}</Kbd>}
-            </TooltipContent>
+            <TooltipContent>Search</TooltipContent>
           </Tooltip>
         </div>
       )}
-
-      {/* Spacer for macOS traffic lights */}
-      <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
-
-      {/* Team dropdown - below traffic lights */}
-      <div className="px-3 pt-2 pb-2">
-        <div className="flex items-center gap-1">
-          <div className="flex-1 min-w-0">
-            <DropdownMenu
-              open={isDropdownOpen}
-              onOpenChange={setIsDropdownOpen}
-            >
-              <DropdownMenuTrigger asChild>
-                <ButtonCustom
-                  variant="ghost"
-                  className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full"
-                  suppressHydrationWarning
-                >
-                  <div className="flex items-center gap-1.5 min-w-0 max-w-full">
-                    <div className="flex items-center justify-center flex-shrink-0">
-                      <Logo className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="text-sm font-medium text-foreground truncate">
-                        1Code
-                      </div>
-                    </div>
-                    {showOfflineFeatures && (
-                      <div className="flex-shrink-0">
-                        <NetworkStatus />
-                      </div>
-                    )}
-                    <ChevronDown
-                      className={cn(
-                        "h-3 text-muted-foreground flex-shrink-0 overflow-hidden",
-                        isDropdownOpen
-                          ? "opacity-100 w-3"
-                          : "opacity-0 w-0 group-hover/team-button:opacity-100 group-hover/team-button:w-3",
-                      )}
-                    />
-                  </div>
-                </ButtonCustom>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="w-52 pt-0"
-                sideOffset={8}
-              >
-                {userId ? (
-                  <>
-                    {/* Project section at the top */}
-                    <div className="relative rounded-t-xl border-b overflow-hidden">
-                      <div className="absolute inset-0 bg-popover brightness-110" />
-                      <div className="relative pl-2 pt-1.5 pb-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-8 h-8 rounded flex items-center justify-center bg-background flex-shrink-0 overflow-hidden">
-                            <Logo className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1 min-w-0 overflow-hidden">
-                            <div className="font-medium text-sm text-foreground truncate">
-                              {desktopUser?.name || "User"}
-                            </div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {desktopUser?.email}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Settings */}
-                    <DropdownMenuItem
-                      className="gap-2"
-                      onSelect={() => {
-                        setIsDropdownOpen(false)
-                        setSettingsActiveTab("preferences")
-                        setSettingsDialogOpen(true)
-                      }}
-                    >
-                      <SettingsIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                      Settings
-                    </DropdownMenuItem>
-
-                    {/* Help Submenu */}
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger className="gap-2">
-                        <QuestionCircleIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                        <span className="flex-1">Help</span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="w-36"
-                        sideOffset={6}
-                        alignOffset={-4}
-                      >
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            window.open(
-                              "https://discord.gg/8ektTZGnj4",
-                              "_blank",
-                            )
-                            setIsDropdownOpen(false)
-                          }}
-                          className="gap-2"
-                        >
-                          <DiscordIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="flex-1">Discord</span>
-                        </DropdownMenuItem>
-                        {!isMobileFullscreen && (
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setIsDropdownOpen(false)
-                              setSettingsActiveTab("keyboard")
-                              setSettingsDialogOpen(true)
-                            }}
-                            className="gap-2"
-                          >
-                            <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="flex-1">Shortcuts</span>
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-
-                    <DropdownMenuSeparator />
-
-                    {/* Log out */}
-                    <div className="">
-                      <DropdownMenuItem
-                        className="gap-2"
-                        onSelect={() => onSignOut()}
-                      >
-                        <svg
-                          className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <path
-                            d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <polyline
-                            points="16,17 21,12 16,7"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <line
-                            x1="21"
-                            y1="12"
-                            x2="9"
-                            y2="12"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        Log out
-                      </DropdownMenuItem>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {/* Login for unauthenticated users */}
-                    <div className="">
-                      <DropdownMenuItem
-                        className="gap-2"
-                        onSelect={() => {
-                          setIsDropdownOpen(false)
-                          setShowAuthDialog(true)
-                        }}
-                      >
-                        <ProfileIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                        Login
-                      </DropdownMenuItem>
-                    </div>
-
-                    <DropdownMenuSeparator />
-
-                    {/* Help Submenu */}
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger className="gap-2">
-                        <QuestionCircleIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                        <span className="flex-1">Help</span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="w-36"
-                        sideOffset={6}
-                        alignOffset={-4}
-                      >
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            window.open(
-                              "https://discord.gg/8ektTZGnj4",
-                              "_blank",
-                            )
-                            setIsDropdownOpen(false)
-                          }}
-                          className="gap-2"
-                        >
-                          <DiscordIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="flex-1">Discord</span>
-                        </DropdownMenuItem>
-                        {!isMobileFullscreen && (
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setIsDropdownOpen(false)
-                              setSettingsActiveTab("keyboard")
-                              setSettingsDialogOpen(true)
-                            }}
-                            className="gap-2"
-                          >
-                            <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="flex-1">Shortcuts</span>
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </div>
     </div>
   )
 })
@@ -2411,6 +2043,7 @@ export function AgentsSidebar({
 
   // Pinned chats (stored in localStorage per project)
   const [pinnedChatIds, setPinnedChatIds] = useState<Set<string>>(new Set())
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Agent name tooltip refs (for truncated names) - using DOM manipulation to avoid re-renders
@@ -2443,7 +2076,7 @@ export function AgentsSidebar({
   const showWorkspaceIcon = useAtomValue(showWorkspaceIconAtom)
 
   // Desktop: use selectedProject instead of teams
-  const [selectedProject] = useAtom(selectedProjectAtom)
+  const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
 
   // Keep chatSourceModeAtom for backwards compatibility (used in other places)
   const [chatSourceMode, setChatSourceMode] = useAtom(chatSourceModeAtom)
@@ -2482,20 +2115,28 @@ export function AgentsSidebar({
     })
   }, [setExpandedWorkspaceIds])
 
+  // Collapse all expanded workspaces
+  const handleCollapseAll = useCallback(() => {
+    setExpandedWorkspaceIds([])
+  }, [setExpandedWorkspaceIds])
+
   // Toggle sort mode between recent and alphabetical
   const handleToggleSort = useCallback(() => {
     setSortMode((prev) => (prev === "recent" ? "alpha" : "recent"))
   }, [])
 
-  // Auto-expand workspace when it's selected so user can see its sub-chats
+  // Auto-expand workspace only when a *different* chat is selected
+  // (not when the expanded set changes, which would fight user collapse)
+  const prevSelectedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (selectedChatId && !expandedSet.has(selectedChatId)) {
+    if (selectedChatId && selectedChatId !== prevSelectedRef.current) {
+      prevSelectedRef.current = selectedChatId
       setExpandedWorkspaceIds((prev) => {
         if (prev.includes(selectedChatId)) return prev
         return [...prev, selectedChatId]
       })
     }
-  }, [selectedChatId, expandedSet, setExpandedWorkspaceIds])
+  }, [selectedChatId, setExpandedWorkspaceIds])
 
   // Handle sub-chat selection from the hierarchy tree
   const handleSubChatSelect = useCallback((workspaceId: string, subChat: SubChatMeta, isRemote: boolean) => {
@@ -2937,23 +2578,16 @@ export function AgentsSidebar({
   })
 
   // Accent color mutation — updates workspace color with optimistic cache update
-  const updateColorMutation = trpc.chats.updateColor.useMutation({
-    onSuccess: () => {
-      utils.chats.list.invalidate()
-    },
-    onError: () => {
-      toast.error("Failed to update color")
-    },
-  })
-
-  const handleUpdateColor = useCallback((chatId: string, color: string | null) => {
-    // Optimistic update in the chats list cache
-    utils.chats.list.setData({}, (old) => {
-      if (!old) return old
-      return old.map((c) => c.id === chatId ? { ...c, accentColor: color } : c)
-    })
-    updateColorMutation.mutate({ id: chatId, accentColor: color })
-  }, [updateColorMutation, utils.chats.list])
+  // Navigate to project settings page with the given project pre-selected
+  const handleNavigateToSettings = useCallback((projectId: string) => {
+    // Find the project to populate the selectedProjectAtom so the settings tab opens with it selected
+    const project = projects?.find((p) => p.id === projectId)
+    if (project) {
+      setSelectedProject({ id: project.id, name: project.name, path: project.path })
+    }
+    setSettingsActiveTab("projects")
+    setSettingsDialogOpen(true)
+  }, [projects, setSelectedProject, setSettingsActiveTab, setSettingsDialogOpen])
 
   const handleTogglePin = useCallback((chatId: string) => {
     setPinnedChatIds((prev) => {
@@ -3092,6 +2726,78 @@ export function AgentsSidebar({
       filteredChats: [...pinned, ...unpinned],
     }
   }, [searchQuery, agentChats, pinnedChatIds, sortMode])
+
+  // Group chats by project for the sidebar hierarchy (owner/repo grouping)
+  type ChatType = typeof filteredChats extends (infer T)[] ? T : never
+  const projectGroupedChats = useMemo(() => {
+    const groups: Array<{
+      key: string
+      label: string
+      projectId: string | null
+      chats: ChatType[]
+    }> = []
+    const groupMap = new Map<string, ChatType[]>()
+    const groupOrder: string[] = []
+    const projectIdsWithChats = new Set<string>()
+
+    for (const chat of filteredChats) {
+      const project = chat.projectId ? projectsMap.get(chat.projectId) : null
+      if (chat.projectId) projectIdsWithChats.add(chat.projectId)
+      const groupKey = chat.isRemote
+        ? (chat.meta?.repository ?? "remote")
+        : (project ? `proj:${chat.projectId}` : "ungrouped")
+
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, [])
+        groupOrder.push(groupKey)
+      }
+      groupMap.get(groupKey)!.push(chat)
+    }
+
+    // Build groups from chats
+    for (const key of groupOrder) {
+      const chats = groupMap.get(key)!
+      const firstChat = chats[0]
+      const project = firstChat?.projectId ? projectsMap.get(firstChat.projectId) : null
+
+      let label = key
+      if (key === "ungrouped") {
+        label = "Unlinked"
+      } else if (key === "remote") {
+        label = "Remote"
+      } else if (project) {
+        const owner = project.gitOwner
+        const repo = project.gitRepo || project.name
+        label = owner && repo ? `${owner}/${repo}` : repo || project.name || key
+      }
+
+      groups.push({
+        key,
+        label,
+        projectId: firstChat?.projectId ?? null,
+        chats,
+      })
+    }
+
+    // Add projects that have no chats (show as empty groups)
+    if (projects) {
+      for (const project of projects) {
+        if (!projectIdsWithChats.has(project.id)) {
+          const owner = project.gitOwner
+          const repo = project.gitRepo || project.name
+          const label = owner && repo ? `${owner}/${repo}` : repo || project.name || "Project"
+          groups.push({
+            key: `proj:${project.id}`,
+            label,
+            projectId: project.id,
+            chats: [],
+          })
+        }
+      }
+    }
+
+    return groups
+  }, [filteredChats, projectsMap, projects])
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -3912,7 +3618,7 @@ export function AgentsSidebar({
       data-mobile-fullscreen={isMobileFullscreen || undefined}
       data-sidebar-content
     >
-      {/* Header area - isolated component to prevent re-renders when dropdown opens */}
+      {/* Header area */}
       <SidebarHeader
         isDesktop={isDesktop}
         isFullscreen={isFullscreen}
@@ -3927,374 +3633,302 @@ export function AgentsSidebar({
         handleSidebarMouseEnter={handleSidebarMouseEnter}
         handleSidebarMouseLeave={handleSidebarMouseLeave}
         closeButtonRef={closeButtonRef}
+        onSearchClick={() => searchInputRef.current?.focus()}
       />
 
-      {/* Search and New Workspace */}
-      <div className="px-3 pb-3 flex-shrink-0">
-        <div className="space-y-2">
-          {/* Search Input */}
-          <div className="relative">
-            <Input
-              ref={searchInputRef}
-              placeholder="Search workspaces..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault()
-                  searchInputRef.current?.blur()
-                  setFocusedChatIndex(-1) // Reset focus
-                  return
-                }
+      {/* Hidden search input for keyboard-triggered search */}
+      <Input
+        ref={searchInputRef}
+        placeholder="Search..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault()
+            setSearchQuery("")
+            searchInputRef.current?.blur()
+            setFocusedChatIndex(-1)
+            return
+          }
+          if (e.key === "ArrowDown") {
+            e.preventDefault()
+            setFocusedChatIndex((prev) => prev === -1 ? 0 : Math.min(prev + 1, filteredChats.length - 1))
+            return
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault()
+            setFocusedChatIndex((prev) => prev === -1 ? filteredChats.length - 1 : Math.max(prev - 1, 0))
+            return
+          }
+          if (e.key === "Enter") {
+            e.preventDefault()
+            if (focusedChatIndex >= 0) {
+              const focusedChat = filteredChats[focusedChatIndex]
+              if (focusedChat) {
+                handleChatClick(focusedChat.id)
+                searchInputRef.current?.blur()
+                setSearchQuery("")
+                setFocusedChatIndex(-1)
+              }
+            }
+            return
+          }
+        }}
+        onBlur={() => {
+          if (!searchQuery) setFocusedChatIndex(-1)
+        }}
+        className={cn(
+          "rounded-md text-[12.5px] bg-transparent border border-border/30 placeholder:text-muted-foreground/25 focus:bg-foreground/[0.03] focus:border-border/60 focus-visible:ring-0 focus-visible:ring-offset-0 px-2.5 transition-all duration-200 mx-3 mb-1",
+          searchQuery ? "h-7 opacity-100" : "h-0 opacity-0 overflow-hidden border-0 p-0 m-0",
+        )}
+      />
 
-                if (e.key === "ArrowDown") {
-                  e.preventDefault()
-                  setFocusedChatIndex((prev) => {
-                    // If no focus yet, start from first item
-                    if (prev === -1) return 0
-                    // Otherwise move down
-                    return prev < filteredChats.length - 1 ? prev + 1 : prev
-                  })
-                  return
-                }
+      {/* Navigation — New Agent + Marketplace */}
+      <div className="px-3 pb-1 flex-shrink-0 space-y-0.5">
+        <button
+          type="button"
+          onClick={handleNewAgent}
+          className={cn(
+            "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] transition-[background-color,color,transform] duration-150 ease-out",
+            "bg-foreground/[0.04] text-foreground hover:bg-foreground/[0.08] active:scale-[0.98]",
+          )}
+        >
+          <IconFilter size={16} stroke={1.5} className="flex-shrink-0" />
+          <span className="font-medium flex-1 text-left">New Agent</span>
+          <Kbd className="text-[10px] opacity-40">{getShortcutKey("newAgent")}</Kbd>
+        </button>
 
-                if (e.key === "ArrowUp") {
-                  e.preventDefault()
-                  setFocusedChatIndex((prev) => {
-                    // If no focus yet, start from last item
-                    if (prev === -1) return filteredChats.length - 1
-                    // Otherwise move up
-                    return prev > 0 ? prev - 1 : prev
-                  })
-                  return
-                }
-
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  // Only open if something is focused (not -1)
-                  if (focusedChatIndex >= 0) {
-                    const focusedChat = filteredChats[focusedChatIndex]
-                    if (focusedChat) {
-                      handleChatClick(focusedChat.id)
-                      searchInputRef.current?.blur()
-                      setFocusedChatIndex(-1) // Reset focus after selection
-                    }
-                  }
-                  return
-                }
-              }}
-              className={cn(
-                "w-full rounded-lg text-[13px] bg-muted/50 border border-border/40 placeholder:text-muted-foreground/30 focus:bg-muted focus:border-border/60 px-2.5",
-                isMobileFullscreen ? "h-10" : "h-8",
-              )}
-            />
-          </div>
-          {/* New Workspace Button */}
-          <Tooltip delayDuration={500}>
-            <TooltipTrigger asChild>
-              <ButtonCustom
-                onClick={handleNewAgent}
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "px-2.5 w-full hover:bg-foreground/[0.06] border-border/50 transition-[background-color,transform] duration-150 ease-out active:scale-[0.98] text-foreground rounded-lg gap-2",
-                  isMobileFullscreen ? "h-10" : "h-8",
-                )}
-              >
-                <IconPlus size={15} stroke={2} className="text-muted-foreground/70" />
-                <span className="text-[13px] font-medium">New Workspace</span>
-              </ButtonCustom>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="flex flex-col items-start gap-1">
-              <span>Start a new workspace</span>
-              {newWorkspaceHotkey && (
-                <span className="flex items-center gap-1.5">
-                  <Kbd>{newWorkspaceHotkey}</Kbd>
-                  {newWorkspaceAltHotkey && <><span className="text-[10px] opacity-50">or</span><Kbd>{newWorkspaceAltHotkey}</Kbd></>}
-                </span>
-              )}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setSettingsActiveTab("preferences")
+            setSettingsDialogOpen(true)
+          }}
+          className={cn(
+            "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] transition-[background-color,color,transform] duration-150 ease-out",
+            "text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground active:scale-[0.98]",
+          )}
+        >
+          <IconLayoutGrid size={16} stroke={1.5} className="flex-shrink-0" />
+          <span className="font-medium">Marketplace</span>
+        </button>
       </div>
 
-      {/* Navigation Links - Inbox & Automations */}
-      <div className="px-3 pb-2.5 flex-shrink-0 space-y-0.5">
-        <InboxButton />
-        <AutomationsButton />
-      </div>
-
-      {/* Scrollable Agents List */}
+      {/* Project-grouped agents list */}
       <div className="flex-1 min-h-0 relative">
         <div
           ref={scrollContainerRef}
           onScroll={handleAgentsScroll}
-          className={cn(
-            "h-full overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent",
-            isMultiSelectMode ? "px-0" : "px-3",
-          )}
+          className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/10 hover:scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent px-3"
         >
-          {/* Drafts Section - always show regardless of chat source mode */}
-          {drafts.length > 0 && !searchQuery && (
-            <div className={cn("mb-3", isMultiSelectMode ? "px-0" : "-mx-1")}>
-              <div
-                className={cn(
-                  "flex items-center h-7 mb-0.5",
-                  isMultiSelectMode ? "pl-3" : "pl-1",
-                )}
-              >
-                <h3 className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
-                  Drafts
-                </h3>
+          {projectGroupedChats.map((group) => {
+            const isGroupCollapsed = collapsedGroups.has(group.key)
+
+            return (
+              <div key={group.key}>
+                {/* Project header */}
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      className="group/project-header flex items-center mt-4 first:mt-1 cursor-pointer"
+                      onClick={() => setCollapsedGroups(prev => {
+                        const next = new Set(prev)
+                        if (next.has(group.key)) next.delete(group.key)
+                        else next.add(group.key)
+                        return next
+                      })}
+                    >
+                      <span className="text-[12px] text-muted-foreground/35 font-normal truncate flex-1 py-1">
+                        {group.label}
+                      </span>
+                      {group.projectId && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedProject(projects?.find(p => p.id === group.projectId) as any ?? null)
+                            handleNewAgent()
+                          }}
+                          className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                          aria-label="New agent"
+                        >
+                          <IconPlus size={12} stroke={2} />
+                        </button>
+                      )}
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem onClick={() => {
+                      setCollapsedGroups(prev => {
+                        const next = new Set(prev)
+                        if (next.has(group.key)) next.delete(group.key)
+                        else next.add(group.key)
+                        return next
+                      })
+                    }}>
+                      {isGroupCollapsed ? "Expand" : "Collapse"}
+                    </ContextMenuItem>
+                    {group.projectId && (
+                      <>
+                        <ContextMenuItem onClick={() => handleNavigateToSettings(group.projectId!)}>
+                          Project settings
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onClick={() => {
+                          setSelectedProject(projects?.find(p => p.id === group.projectId) as any ?? null)
+                          handleNewAgent()
+                        }}>
+                          New agent
+                        </ContextMenuItem>
+                      </>
+                    )}
+                  </ContextMenuContent>
+                </ContextMenu>
+
+                {/* Agents list */}
+                <AnimatePresence initial={false}>
+                  {!isGroupCollapsed && (
+                    <motion.div
+                      key={`group-${group.key}`}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{
+                        height: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
+                        opacity: { duration: 0.15, ease: "easeOut" },
+                      }}
+                      className="overflow-hidden"
+                    >
+                      {group.chats.length > 0 && group.chats.map((chat) => {
+                        const chatOriginalId = chat.isRemote ? chat.id.replace(/^remote_/, '') : chat.id
+                        const isSelected = selectedChatId === chatOriginalId && selectedChatIsRemote === chat.isRemote
+                        const isLoading = loadingChatIds.has(chat.id)
+                        const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
+                        const hasPendingPlan = workspacePendingPlans.has(chat.id)
+                        const isActive = isLoading || hasPendingQuestion || hasPendingPlan
+
+                        return (
+                          <ContextMenu key={chat.id}>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => handleChatClick(chat.id, e)}
+                                onMouseEnter={(e) => handleAgentMouseEnter(chat.id, chat.name, e.currentTarget, filteredChats.findIndex(c => c.id === chat.id))}
+                                onMouseLeave={handleAgentMouseLeave}
+                                className={cn(
+                                  "group/agent flex items-center gap-3 w-full pl-3 pr-3 py-2 rounded-lg text-[14px] text-left transition-[background-color,color] duration-100 ease-out",
+                                  isSelected
+                                    ? "bg-foreground/[0.06] text-foreground"
+                                    : "text-muted-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground",
+                                )}
+                              >
+                                {/* Status dot */}
+                                <AnimatePresence mode="wait" initial={false}>
+                                  {isActive ? (
+                                    <motion.span
+                                      key="active"
+                                      initial={{ opacity: 0, scale: 0.5 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.5 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-muted-foreground"
+                                    >
+                                      <GridPulseSpinner size={12} />
+                                    </motion.span>
+                                  ) : (
+                                    <motion.span
+                                      key="idle"
+                                      initial={{ opacity: 0, scale: 0.5 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.5 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px]"
+                                    >
+                                      <span className={cn(
+                                        "w-[6px] h-[6px] rounded-full",
+                                        isSelected ? "bg-muted-foreground/50" : "bg-muted-foreground/25",
+                                      )} />
+                                    </motion.span>
+                                  )}
+                                </AnimatePresence>
+                                <span className="truncate flex-1">{chat.name || "Untitled"}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleArchiveSingle(chat.id)
+                                  }}
+                                  className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/agent:opacity-100 transition-opacity duration-150"
+                                  aria-label="Archive"
+                                >
+                                  <IconArchive size={12} stroke={1.5} />
+                                </button>
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onClick={() => handleRenameClick({ id: chat.id, name: chat.name, isRemote: chat.isRemote })}>
+                                Rename
+                              </ContextMenuItem>
+                              <ContextMenuItem onClick={() => handleArchiveSingle(chat.id)}>
+                                Archive
+                              </ContextMenuItem>
+                              {chat.branch && (
+                                <>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem onClick={() => handleCopyBranch(chat.branch!)}>
+                                    Copy branch name
+                                  </ContextMenuItem>
+                                </>
+                              )}
+                              <ContextMenuSeparator />
+                              <ContextMenuItem onClick={() => handleArchiveOthers(chat.id)}>
+                                Archive others
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        )
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              <div className="list-none p-0 m-0 space-y-0.5">
-                {drafts.map((draft) => (
-                  <DraftItem
-                    key={draft.id}
-                    draftId={draft.id}
-                    draftText={draft.text}
-                    draftUpdatedAt={draft.updatedAt}
-                    projectGitOwner={draft.project?.gitOwner}
-                    projectGitProvider={draft.project?.gitProvider}
-                    projectGitRepo={draft.project?.gitRepo}
-                    projectName={draft.project?.name}
-                    isSelected={selectedDraftId === draft.id && !selectedChatId}
-                    isMultiSelectMode={isMultiSelectMode}
-                    isMobileFullscreen={isMobileFullscreen}
-                    showIcon={showWorkspaceIcon}
-                    onSelect={handleDraftSelect}
-                    onDelete={handleDeleteDraft}
-                    formatTime={formatTime}
-                  />
-                ))}
-              </div>
+            )
+          })}
+
+          {/* Empty state when no projects have chats */}
+          {projectGroupedChats.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground/30 text-[13px]">
+              No workspaces yet
             </div>
           )}
-
-          {/* Chats Section */}
-          {filteredChats.length > 0 ? (
-            <div className={cn("mb-3", isMultiSelectMode ? "px-0" : "-mx-1")}>
-              {/* Pinned section */}
-              <ChatListSection
-                title="Pinned workspaces"
-                chats={pinnedAgents}
-                selectedChatId={selectedChatId}
-                selectedChatIsRemote={selectedChatIsRemote}
-                focusedChatIndex={focusedChatIndex}
-                loadingChatIds={loadingChatIds}
-                unseenChanges={unseenChanges}
-                workspacePendingPlans={workspacePendingPlans}
-                workspacePendingQuestions={workspacePendingQuestions}
-                isMultiSelectMode={isMultiSelectMode}
-                selectedChatIds={selectedChatIds}
-                isMobileFullscreen={isMobileFullscreen}
-                isDesktop={isDesktop}
-                pinnedChatIds={pinnedChatIds}
-                projectsMap={projectsMap}
-                workspaceFileStats={workspaceFileStats}
-                filteredChats={filteredChats}
-                canShowPinOption={canShowPinOption}
-                areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={true}
-                onChatClick={handleChatClick}
-                onCheckboxClick={handleCheckboxClick}
-                onMouseEnter={handleAgentMouseEnter}
-                onMouseLeave={handleAgentMouseLeave}
-                onArchive={handleArchiveSingle}
-                onTogglePin={handleTogglePin}
-                onRenameClick={handleRenameClick}
-                onCopyBranch={handleCopyBranch}
-                onArchiveAllBelow={handleArchiveAllBelow}
-                onArchiveOthers={handleArchiveOthers}
-                onOpenLocally={handleOpenLocally}
-                onBulkPin={handleBulkPin}
-                onBulkUnpin={handleBulkUnpin}
-                onBulkArchive={handleBulkArchive}
-                archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
-                archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
-                nameRefCallback={nameRefCallback}
-                formatTime={formatTime}
-                justCreatedIds={justCreatedIds}
-                expandedSet={expandedSet}
-                onToggleExpand={handleToggleExpand}
-                onSubChatSelect={handleSubChatSelect}
-                onCreateSubChat={handleCreateSubChat}
-                searchQuery={searchQuery}
-                sortMode={sortMode}
-                onToggleSort={handleToggleSort}
-                onUpdateColor={handleUpdateColor}
-              />
-
-              {/* Unpinned section */}
-              <ChatListSection
-                title={pinnedAgents.length > 0 ? "Recent workspaces" : "Workspaces"}
-                chats={unpinnedAgents}
-                selectedChatId={selectedChatId}
-                selectedChatIsRemote={selectedChatIsRemote}
-                focusedChatIndex={focusedChatIndex}
-                loadingChatIds={loadingChatIds}
-                unseenChanges={unseenChanges}
-                workspacePendingPlans={workspacePendingPlans}
-                workspacePendingQuestions={workspacePendingQuestions}
-                isMultiSelectMode={isMultiSelectMode}
-                selectedChatIds={selectedChatIds}
-                isMobileFullscreen={isMobileFullscreen}
-                isDesktop={isDesktop}
-                pinnedChatIds={pinnedChatIds}
-                projectsMap={projectsMap}
-                workspaceFileStats={workspaceFileStats}
-                filteredChats={filteredChats}
-                canShowPinOption={canShowPinOption}
-                areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={true}
-                onChatClick={handleChatClick}
-                onCheckboxClick={handleCheckboxClick}
-                onMouseEnter={handleAgentMouseEnter}
-                onMouseLeave={handleAgentMouseLeave}
-                onArchive={handleArchiveSingle}
-                onTogglePin={handleTogglePin}
-                onRenameClick={handleRenameClick}
-                onCopyBranch={handleCopyBranch}
-                onArchiveAllBelow={handleArchiveAllBelow}
-                onArchiveOthers={handleArchiveOthers}
-                onOpenLocally={handleOpenLocally}
-                onBulkPin={handleBulkPin}
-                onBulkUnpin={handleBulkUnpin}
-                onBulkArchive={handleBulkArchive}
-                archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
-                archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
-                nameRefCallback={nameRefCallback}
-                formatTime={formatTime}
-                justCreatedIds={justCreatedIds}
-                expandedSet={expandedSet}
-                onToggleExpand={handleToggleExpand}
-                onSubChatSelect={handleSubChatSelect}
-                onCreateSubChat={handleCreateSubChat}
-                searchQuery={searchQuery}
-                sortMode={sortMode}
-                onToggleSort={handleToggleSort}
-                onUpdateColor={handleUpdateColor}
-              />
-            </div>
-          ) : null}
         </div>
 
-        {/* Top gradient fade (appears when scrolled down) */}
-        {/* Top gradient fade (appears when scrolled down) */}
+        {/* Top gradient */}
         <div
           ref={topGradientRef}
           className="absolute top-0 left-0 right-0 h-10 pointer-events-none bg-gradient-to-b from-tl-background via-tl-background/50 to-transparent transition-opacity duration-200 opacity-0"
         />
-
-        {/* Bottom gradient fade */}
+        {/* Bottom gradient */}
         <div
           ref={bottomGradientRef}
           className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none bg-gradient-to-t from-tl-background via-tl-background/50 to-transparent transition-opacity duration-200 opacity-0"
         />
       </div>
 
-      {/* Footer - Multi-select toolbar or normal footer */}
-      <AnimatePresence mode="wait">
-        {isMultiSelectMode ? (
-          <motion.div
-            key="multi-select-footer"
-            initial={hasFooterAnimated.current ? { opacity: 0, y: 8 } : false}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0 }}
-            onAnimationComplete={() => {
-              hasFooterAnimated.current = true
-            }}
-            className="px-3 py-2.5 flex flex-col gap-2"
-          >
-            {/* Selection info */}
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] text-muted-foreground">
-                {selectedChatsCount} selected
-              </span>
-              <button
-                onClick={clearChatSelection}
-                className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkArchive}
-                disabled={archiveChatsBatchMutation.isPending}
-                className="flex-1 h-8 gap-2 text-[13px] rounded-lg"
-              >
-                <IconArchive size={14} stroke={1.5} />
-                {archiveChatsBatchMutation.isPending
-                  ? "Archiving..."
-                  : "Archive"}
-              </Button>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="normal-footer"
-            initial={hasFooterAnimated.current ? { opacity: 0, y: 8 } : false}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0 }}
-            onAnimationComplete={() => {
-              hasFooterAnimated.current = true
-            }}
-            className="px-3 py-2.5 flex flex-col gap-2"
-          >
-            <div className="flex items-center">
-              <div className="flex items-center gap-0.5">
-                {/* Settings Button */}
-                <Tooltip delayDuration={500}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSettingsActiveTab("preferences")
-                        setSettingsDialogOpen(true)
-                      }}
-                      className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-                    >
-                      <SettingsIcon className="h-[18px] w-[18px]" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Settings{settingsHotkey && <> <Kbd>{settingsHotkey}</Kbd></>}</TooltipContent>
-                </Tooltip>
-
-                {/* Help Button - isolated component to prevent sidebar re-renders */}
-                <HelpSection isMobile={isMobileFullscreen} />
-
-                {/* Kanban View Button - isolated component */}
-                <KanbanButton />
-
-                {/* Archive Button - isolated component to prevent sidebar re-renders */}
-                <ArchiveSection archivedChatsCount={archivedChatsCount} />
-              </div>
-
-              <div className="flex-1" />
-            </div>
-
-            {/* Feedback Button */}
-            <ButtonCustom
-              onClick={() => window.open(FEEDBACK_URL, "_blank")}
-              variant="outline"
-              size="sm"
-              className={cn(
-                "px-2.5 w-full hover:bg-foreground/[0.06] border-border/50 transition-[background-color,transform] duration-150 ease-out active:scale-[0.98] text-muted-foreground hover:text-foreground rounded-lg gap-2",
-                isMobileFullscreen ? "h-10" : "h-8",
-              )}
-            >
-              <span className="text-[13px]">Feedback</span>
-            </ButtonCustom>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Footer — Open Workspace */}
+      <div className="px-3 py-2.5 flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            setSettingsActiveTab("projects")
+            setSettingsDialogOpen(true)
+          }}
+          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] text-muted-foreground/35 hover:text-foreground hover:bg-foreground/[0.04] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]"
+        >
+          <IconLogin size={16} stroke={1.5} className="flex-shrink-0" />
+          <span className="font-medium">Open Workspace</span>
+        </button>
+      </div>
     </div>
   )
 
