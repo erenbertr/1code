@@ -105,6 +105,7 @@
     "react-zoom-pan-pinch": "^3.7.0",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
+    "sharp": "^0.34.5",
     "shiki": "^1.24.4",
     "simple-git": "^3.28.0",
     "sonner": "^1.7.1",
