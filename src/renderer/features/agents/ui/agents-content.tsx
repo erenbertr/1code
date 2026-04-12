@@ -3,11 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { useQuery } from "@tanstack/react-query"
-// import { useSearchParams, useRouter } from "next/navigation" // Desktop doesn't use next/navigation
-// Desktop: mock Next.js navigation hooks
+// Desktop stubs for web-only hooks
 const useSearchParams = () => ({ get: (_key: string) => null })
 const useRouter = () => ({ push: (_url: string) => {}, replace: (_url: string, _opts?: any) => {} })
-// Desktop: mock Clerk hooks
 const useUser = () => ({ user: null })
 const useClerk = () => ({ signOut: (_opts?: any) => {} })
 import {
@@ -40,11 +38,10 @@ import { NewChatForm } from "../main/new-chat-form"
 import { KanbanView } from "../../kanban"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
-import { api } from "../../../lib/mock-api"
+import { api } from "../../../lib/api-bridge"
 import { trpc } from "../../../lib/trpc"
 import { useIsMobile } from "../../../lib/hooks/use-mobile"
 import { AgentsSidebar } from "../../sidebar/agents-sidebar"
-// AgentsSubChatsSidebar removed — unified sidebar handles sub-chats now
 import { AgentPreview } from "./agent-preview"
 import { AgentDiffView } from "./agent-diff-view"
 import { TerminalSidebar, terminalSidebarOpenAtomFamily } from "../../terminal"
@@ -55,10 +52,8 @@ import {
 } from "../stores/sub-chat-store"
 import { useShallow } from "zustand/react/shallow"
 import { motion, AnimatePresence } from "motion/react"
-// ResizableSidebar removed — sub-chats sidebar no longer rendered here
-// import { useClerk, useUser } from "@clerk/nextjs"
-// import { useCombinedAuth } from "@/lib/hooks/use-combined-auth"
-const useCombinedAuth = () => ({ userId: null }) // Desktop mock
+import { DURATION_INSTANT, EASE_OUT } from "../../../lib/motion"
+const useCombinedAuth = () => ({ userId: null })
 import { Button } from "../../../components/ui/button"
 import { AlignJustify } from "lucide-react"
 import { AgentsQuickSwitchDialog } from "../components/agents-quick-switch-dialog"
@@ -66,7 +61,6 @@ import { SubChatsQuickSwitchDialog } from "../components/subchats-quick-switch-d
 import { isDesktopApp } from "../../../lib/utils/platform"
 import { remoteTrpc } from "../../../lib/remote-trpc"
 import { SettingsContent } from "../../settings/settings-content"
-// Desktop mock
 const useIsAdmin = () => false
 
 // Main Component
@@ -826,12 +820,8 @@ export function AgentsContent() {
         ) : mobileViewMode === "chats" ? (
           // Chats List Mode (default) - uses AgentsSidebar in fullscreen
           <AgentsSidebar
-            userId={userId}
-            clerkUser={user}
             onSignOut={handleSignOut}
             onToggleSidebar={() => {}}
-            isMobileFullscreen={true}
-            onChatSelect={() => setMobileViewMode("chat")}
           />
         ) : mobileViewMode === "preview" && selectedChatId && canShowPreview ? (
           // Preview Mode
@@ -925,36 +915,56 @@ export function AgentsContent() {
           className="flex-1 min-w-0 overflow-hidden"
           style={{ minWidth: "350px" }}
         >
-          {desktopView === "settings" ? (
-            <SettingsContent />
-          ) : betaAutomationsEnabled && desktopView === "automations" ? (
-            <AutomationsView />
-          ) : betaAutomationsEnabled && desktopView === "automations-detail" ? (
-            <AutomationsDetailView />
-          ) : betaAutomationsEnabled && desktopView === "inbox" ? (
-            <InboxView />
-          ) : selectedChatId ? (
-            <div className="h-full flex flex-col relative overflow-hidden">
-              <ChatView
-                key={`${chatSourceMode}-${selectedChatId}`}
-                chatId={selectedChatId}
-                isSidebarOpen={sidebarOpen}
-                onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-                selectedTeamName={selectedTeam?.name}
-                selectedTeamImageUrl={selectedTeam?.image_url}
-              />
-            </div>
-          ) : selectedDraftId || showNewChatForm ? (
-            <div className="h-full flex flex-col relative overflow-hidden">
-              <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
-            </div>
-          ) : betaKanbanEnabled ? (
-            <KanbanView />
-          ) : (
-            <div className="h-full flex flex-col relative overflow-hidden">
-              <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
-            </div>
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={
+                desktopView === "settings" ? "settings"
+                : betaAutomationsEnabled && desktopView === "automations" ? "automations"
+                : betaAutomationsEnabled && desktopView === "automations-detail" ? "automations-detail"
+                : betaAutomationsEnabled && desktopView === "inbox" ? "inbox"
+                : selectedChatId ? `chat-${chatSourceMode}-${selectedChatId}`
+                : selectedDraftId || showNewChatForm ? `new-chat-${newChatFormKeyRef.current}`
+                : betaKanbanEnabled ? "kanban"
+                : `new-chat-${newChatFormKeyRef.current}`
+              }
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+              className="h-full"
+            >
+              {desktopView === "settings" ? (
+                <SettingsContent />
+              ) : betaAutomationsEnabled && desktopView === "automations" ? (
+                <AutomationsView />
+              ) : betaAutomationsEnabled && desktopView === "automations-detail" ? (
+                <AutomationsDetailView />
+              ) : betaAutomationsEnabled && desktopView === "inbox" ? (
+                <InboxView />
+              ) : selectedChatId ? (
+                <div className="h-full flex flex-col relative overflow-hidden">
+                  <ChatView
+                    key={`${chatSourceMode}-${selectedChatId}`}
+                    chatId={selectedChatId}
+                    isSidebarOpen={sidebarOpen}
+                    onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+                    selectedTeamName={selectedTeam?.name}
+                    selectedTeamImageUrl={selectedTeam?.image_url}
+                  />
+                </div>
+              ) : selectedDraftId || showNewChatForm ? (
+                <div className="h-full flex flex-col relative overflow-hidden">
+                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
+                </div>
+              ) : betaKanbanEnabled ? (
+                <KanbanView />
+              ) : (
+                <div className="h-full flex flex-col relative overflow-hidden">
+                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 

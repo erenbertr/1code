@@ -93,7 +93,6 @@ export function Terminal({
     (data: string) => {
       const parsedCwd = parseCwd(data)
       if (parsedCwd !== null) {
-        console.log("[Terminal] Parsed cwd from OSC-7:", parsedCwd)
         setTerminalCwd(parsedCwd)
         // Also update global atom for the tabs to show
         setGlobalCwds((prev) => ({
@@ -141,30 +140,18 @@ export function Terminal({
     const container = containerRef.current
     if (!container) return
 
-    console.log("[Terminal:useEffect] MOUNT - paneId:", paneId)
-    console.log(
-      "[Terminal:useEffect] Container rect:",
-      container.getBoundingClientRect(),
-    )
-
     let isUnmounted = false
 
-    // Create xterm instance
-    console.log("[Terminal:useEffect] Creating terminal instance...", {
-      isDark,
-    })
     const { xterm, fitAddon, serializeAddon, cleanup } = createTerminalInstance(
       container,
       {
         cwd: terminalCwdRef.current || cwd,
         isDark,
         fontSize: terminalFontSize,
-        onFileLinkClick: (path, line, column) => {
-          console.log("[Terminal] File link clicked:", path, line, column)
+        onFileLinkClick: (_path, _line, _column) => {
           // TODO: Open file in editor
         },
         onUrlClick: (url) => {
-          console.log("[Terminal] URL clicked:", url)
           window.desktopApi.openExternal(url)
         },
       },
@@ -331,7 +318,6 @@ export function Terminal({
 
     // Cleanup on unmount
     return () => {
-      console.log("[Terminal:useEffect] UNMOUNT - paneId:", paneId)
       isUnmounted = true
       inputDisposable.dispose()
       keyDisposable.dispose()
@@ -344,19 +330,16 @@ export function Terminal({
       cleanup()
 
       // Serialize terminal state before detaching
-      console.log("[Terminal:useEffect] Serializing state before detach...")
       const serializedState = serializeAddon.serialize()
 
       // Detach instead of kill - keeps session alive for reattach
       detachRef.current({ paneId, serializedState })
 
-      console.log("[Terminal:useEffect] Disposing xterm...")
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
       searchAddonRef.current = null
       serializeAddonRef.current = null
-      console.log("[Terminal:useEffect] UNMOUNT complete")
     }
     // Note: terminalCwd is accessed via ref to avoid remounting on cwd changes
     // eslint-disable-next-line react-hooks/exhaustive-deps

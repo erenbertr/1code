@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { IconLayoutSidebarLeftCollapse } from "@tabler/icons-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
+import { DURATION_NORMAL } from "../../lib/motion"
 
 import {
   agentsSidebarOpenAtom,
@@ -48,7 +49,7 @@ import {
 
 const SIDEBAR_MIN_WIDTH = 160
 const SIDEBAR_MAX_WIDTH = 400
-const SIDEBAR_ANIMATION_DURATION = 0.25
+const SIDEBAR_ANIMATION_DURATION = DURATION_NORMAL
 const SIDEBAR_CLOSE_HOTKEY = "⌘\\"
 
 // ============================================================================

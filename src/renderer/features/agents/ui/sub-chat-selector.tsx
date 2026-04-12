@@ -46,7 +46,7 @@ import {
   ContextMenuTrigger,
 } from "../../../components/ui/context-menu"
 import { InlineEdit } from "./inline-edit"
-import { api } from "../../../lib/mock-api"
+import { api } from "../../../lib/api-bridge"
 import { toast } from "sonner"
 import { SearchCombobox } from "../../../components/ui/search-combobox"
 import { SubChatContextMenu } from "./sub-chat-context-menu"

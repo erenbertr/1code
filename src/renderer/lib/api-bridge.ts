@@ -174,7 +174,7 @@ export const api = {
                 })
               } catch {
                 console.warn(
-                  "[mock-api] Failed to parse messages for subChat:",
+                  "[api-bridge] Failed to parse messages for subChat:",
                   sc.id,
                 )
                 parsedMessages = []
