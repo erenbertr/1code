@@ -1,25 +1,8 @@
 import { existsSync } from "node:fs"
-import { readdir, readFile } from "node:fs/promises"
+import { readdir, readFile, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { publicProcedure, router } from "../index"
-
-type DailyActivity = {
-  date: string
-  messageCount?: number
-  sessionCount?: number
-  toolCallCount?: number
-}
-
-type DailyModelTokensEntry = {
-  date: string
-  tokensByModel?: Record<string, number>
-}
-
-type ClaudeStatsCache = {
-  dailyActivity?: DailyActivity[]
-  dailyModelTokens?: DailyModelTokensEntry[]
-}
 
 export type ClaudeTodayUsage = {
   tokens: number
@@ -58,43 +41,157 @@ function todayLocalParts(): { year: string; month: string; day: string } {
   }
 }
 
-async function readClaudeToday(): Promise<ClaudeTodayUsage | null> {
-  const path = join(homedir(), ".claude", "stats-cache.json")
-  if (!existsSync(path)) return null
+type ClaudeSessionTotals = {
+  messages: number
+  toolCalls: number
+  tokens: number
+}
 
-  let raw: string
+function pickNonNegativeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0
+}
+
+function localDayBounds(): { start: Date; end: Date } {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+  return { start, end }
+}
+
+async function scanClaudeSessionForDay(
+  filePath: string,
+  start: Date,
+  end: Date,
+): Promise<ClaudeSessionTotals | null> {
+  let content: string
   try {
-    raw = await readFile(path, "utf8")
+    content = await readFile(filePath, "utf8")
   } catch {
     return null
   }
 
-  let parsed: ClaudeStatsCache
-  try {
-    parsed = JSON.parse(raw) as ClaudeStatsCache
-  } catch {
-    return null
-  }
-
-  const today = todayLocalISO()
-  const activity = parsed.dailyActivity?.find((entry) => entry.date === today)
-  const modelTokensEntry = parsed.dailyModelTokens?.find(
-    (entry) => entry.date === today,
-  )
-
+  let messages = 0
+  let toolCalls = 0
   let tokens = 0
-  for (const value of Object.values(modelTokensEntry?.tokensByModel ?? {})) {
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      tokens += value
+
+  for (const line of content.split("\n")) {
+    if (!line) continue
+
+    let entry: unknown
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      (entry as { type?: unknown }).type !== "assistant"
+    ) {
+      continue
+    }
+
+    const tsRaw = (entry as { timestamp?: unknown }).timestamp
+    if (typeof tsRaw !== "string") continue
+    const ts = new Date(tsRaw)
+    if (Number.isNaN(ts.getTime())) continue
+    if (ts < start || ts >= end) continue
+
+    messages += 1
+
+    const message = (entry as { message?: unknown }).message
+    if (typeof message !== "object" || message === null) continue
+
+    const usage = (message as { usage?: unknown }).usage
+    if (typeof usage === "object" && usage !== null) {
+      const u = usage as Record<string, unknown>
+      tokens +=
+        pickNonNegativeNumber(u.input_tokens) +
+        pickNonNegativeNumber(u.output_tokens) +
+        pickNonNegativeNumber(u.cache_read_input_tokens) +
+        pickNonNegativeNumber(u.cache_creation_input_tokens)
+    }
+
+    const contentBlocks = (message as { content?: unknown }).content
+    if (Array.isArray(contentBlocks)) {
+      for (const block of contentBlocks) {
+        if (
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "tool_use"
+        ) {
+          toolCalls += 1
+        }
+      }
     }
   }
 
-  return {
-    tokens,
-    sessions: activity?.sessionCount ?? 0,
-    messages: activity?.messageCount ?? 0,
-    toolCalls: activity?.toolCallCount ?? 0,
+  return { messages, toolCalls, tokens }
+}
+
+async function readClaudeToday(): Promise<ClaudeTodayUsage | null> {
+  const projectsDir = join(homedir(), ".claude", "projects")
+  if (!existsSync(projectsDir)) return null
+
+  let projectNames: string[]
+  try {
+    projectNames = await readdir(projectsDir)
+  } catch {
+    return null
   }
+
+  const { start, end } = localDayBounds()
+
+  let sessions = 0
+  let messages = 0
+  let toolCalls = 0
+  let tokens = 0
+
+  const sessionFiles: string[] = []
+  for (const projectName of projectNames) {
+    const projectDir = join(projectsDir, projectName)
+    let entries: { name: string; isFile: boolean }[]
+    try {
+      const dirents = await readdir(projectDir, { withFileTypes: true })
+      entries = dirents.map((d) => ({ name: d.name, isFile: d.isFile() }))
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile) continue
+      if (!entry.name.endsWith(".jsonl")) continue
+
+      const filePath = join(projectDir, entry.name)
+      let mtime: Date
+      try {
+        const s = await stat(filePath)
+        mtime = s.mtime
+      } catch {
+        continue
+      }
+      if (mtime < start) continue
+      sessionFiles.push(filePath)
+    }
+  }
+
+  const totalsList = await Promise.all(
+    sessionFiles.map((filePath) => scanClaudeSessionForDay(filePath, start, end)),
+  )
+
+  for (const totals of totalsList) {
+    if (!totals || totals.messages === 0) continue
+    sessions += 1
+    messages += totals.messages
+    toolCalls += totals.toolCalls
+    tokens += totals.tokens
+  }
+
+  return { tokens, sessions, messages, toolCalls }
 }
 
 type CodexLastTokenUsage = {
