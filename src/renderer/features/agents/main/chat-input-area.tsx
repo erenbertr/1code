@@ -622,6 +622,10 @@ export const ChatInputArea = memo(function ChatInputArea({
       return selectedCodexModel.name
     }
 
+    if (provider === "gemini") {
+      return selectedGeminiModel.name
+    }
+
     if (availableModels.isOffline && availableModels.hasOllama) {
       return currentOllamaModel || "Ollama"
     }
@@ -638,6 +642,7 @@ export const ChatInputArea = memo(function ChatInputArea({
   }, [
     provider,
     selectedCodexModel.name,
+    selectedGeminiModel.name,
     availableModels.isOffline,
     availableModels.hasOllama,
     currentOllamaModel,

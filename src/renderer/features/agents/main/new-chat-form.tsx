@@ -168,6 +168,7 @@ const agents = [
   { id: "claude-code", name: "Claude Code", hasModels: true },
   { id: "cursor", name: "Cursor CLI", disabled: true },
   { id: "codex", name: "OpenAI Codex" },
+  { id: "gemini", name: "Google Gemini" },
 ]
 
 interface NewChatFormProps {
@@ -436,6 +437,10 @@ export function NewChatForm({
       return selectedCodexModel.name
     }
 
+    if (selectedAgent.id === "gemini") {
+      return selectedGeminiModel.name
+    }
+
     if (availableModels.isOffline && availableModels.hasOllama) {
       return currentOllamaModel || "Ollama"
     }
@@ -452,6 +457,7 @@ export function NewChatForm({
   }, [
     selectedAgent.id,
     selectedCodexModel.name,
+    selectedGeminiModel.name,
     availableModels.isOffline,
     availableModels.hasOllama,
     currentOllamaModel,

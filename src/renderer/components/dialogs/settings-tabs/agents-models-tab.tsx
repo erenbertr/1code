@@ -14,7 +14,13 @@ import {
   type CustomClaudeConfig,
 } from "../../../lib/atoms"
 import { ClaudeCodeIcon, CodexIcon, SearchIcon } from "../../ui/icons"
-import { CLAUDE_MODELS, CODEX_MODELS } from "../../../features/agents/lib/models"
+import { CLAUDE_MODELS, CODEX_MODELS, GEMINI_MODELS } from "../../../features/agents/lib/models"
+
+const GeminiIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12 2L13.09 8.26L20 9.27L15 14.14L16.18 21.02L12 17.77L7.82 21.02L9 14.14L4 9.27L10.91 8.26L12 2Z" />
+  </svg>
+)
 import { trpc } from "../../../lib/trpc"
 import { Badge } from "../../ui/badge"
 import { Button } from "../../ui/button"
@@ -549,12 +555,15 @@ export function AgentsModelsTab() {
 
   // All models merged into one list for the top section
   const allModels = useMemo(() => {
-    const items: { id: string; name: string; provider: "claude" | "codex" }[] = []
+    const items: { id: string; name: string; provider: "claude" | "codex" | "gemini" }[] = []
     for (const m of CLAUDE_MODELS) {
       items.push({ id: m.id, name: `${m.name} ${m.version}`, provider: "claude" })
     }
     for (const m of CODEX_MODELS) {
       items.push({ id: m.id, name: m.name, provider: "codex" })
+    }
+    for (const m of GEMINI_MODELS) {
+      items.push({ id: m.id, name: m.name, provider: "gemini" })
     }
     return items
   }, [])
@@ -606,8 +615,10 @@ export function AgentsModelsTab() {
                     <span className="text-sm font-medium">{m.name}</span>
                     {m.provider === "claude" ? (
                       <ClaudeCodeIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                    ) : (
+                    ) : m.provider === "codex" ? (
                       <CodexIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <GeminiIcon className="h-3.5 w-3.5 text-muted-foreground" />
                     )}
                   </div>
                   <Switch
@@ -715,6 +726,63 @@ export function AgentsModelsTab() {
         </div>
       </div>
 
+      {/* Gemini Account */}
+      <div className="space-y-2">
+        <div className="pb-2 flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-medium text-foreground">
+              Gemini Account
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {hasGeminiKey
+                ? `API key stored encrypted via OS keychain · ${geminiMaskedKey}`
+                : "Connect a Google AI Studio API key (aistudio.google.com/apikey)"}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-background rounded-lg border border-border overflow-hidden">
+          <div className="flex items-center justify-between gap-6 p-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">Gemini API Key</Label>
+                {hasGeminiKey && (
+                  <Badge variant="secondary" className="text-xs">
+                    Active
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Required to use Gemini models
+              </p>
+            </div>
+            <div className="flex-shrink-0 w-80 flex items-center gap-2">
+              <Input
+                type="password"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                onBlur={handleGeminiApiKeyBlur}
+                className="w-full font-mono"
+                placeholder={hasGeminiKey ? "•••••••••••••" : "AIza..."}
+                disabled={isSavingGeminiKey || isGeminiAuthLoading}
+              />
+              {hasGeminiKey && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => void handleRemoveGeminiKey()}
+                  disabled={isSavingGeminiKey}
+                  aria-label="Remove Gemini API key"
+                  className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ===== API Keys Section (Collapsible) ===== */}
       <Collapsible open={isApiKeysOpen} onOpenChange={setIsApiKeysOpen}>
         <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/80 transition-colors">
@@ -754,50 +822,6 @@ export function AgentsModelsTab() {
                     onClick={() => void handleRemoveCodexApiKey()}
                     disabled={isSavingCodexApiKey}
                     aria-label="Remove Codex API key"
-                    className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Gemini API Key */}
-          <div className="bg-background rounded-lg border border-border overflow-hidden">
-            <div className="flex items-center justify-between gap-6 p-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm font-medium">Gemini API Key</Label>
-                  {hasGeminiKey && (
-                    <Badge variant="secondary" className="text-xs">
-                      Active
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {hasGeminiKey
-                    ? `Stored encrypted via OS keychain · ${geminiMaskedKey}`
-                    : "Get a key at aistudio.google.com/apikey"}
-                </p>
-              </div>
-              <div className="flex-shrink-0 w-80 flex items-center gap-2">
-                <Input
-                  type="password"
-                  value={geminiApiKey}
-                  onChange={(e) => setGeminiApiKey(e.target.value)}
-                  onBlur={handleGeminiApiKeyBlur}
-                  className="w-full font-mono"
-                  placeholder={hasGeminiKey ? "•••••••••••••" : "AIza..."}
-                  disabled={isSavingGeminiKey || isGeminiAuthLoading}
-                />
-                {hasGeminiKey && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => void handleRemoveGeminiKey()}
-                    disabled={isSavingGeminiKey}
-                    aria-label="Remove Gemini API key"
                     className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
                   >
                     <Trash2 className="h-4 w-4" />
