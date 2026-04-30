@@ -14,7 +14,12 @@ import { utf8ToBase64 } from "../utils/base64"
 import type { AgentQueueItem } from "../lib/queue-utils"
 
 // Delay between processing queue items (ms)
-const QUEUE_PROCESS_DELAY = 1000
+const QUEUE_PROCESS_DELAY = 250
+
+// Periodic safety re-check interval (ms) — catches missed status transitions
+// (e.g., race conditions where streaming→ready transition doesn't fire the
+// status subscription, leaving the queue stuck waiting).
+const QUEUE_SAFETY_CHECK_INTERVAL = 2000
 
 /**
  * Global queue processor component.
@@ -237,10 +242,16 @@ export function QueueProcessor() {
     // Initial check
     checkAllQueues()
 
+    // Periodic safety re-check: catches missed status transitions that could
+    // leave the queue stalled (e.g., subscription edge cases on stream end,
+    // component remounts mid-stream, or transports that don't fire onFinish).
+    const safetyInterval = setInterval(checkAllQueues, QUEUE_SAFETY_CHECK_INTERVAL)
+
     // Cleanup
     return () => {
       unsubscribeQueue()
       unsubscribeStatus()
+      clearInterval(safetyInterval)
 
       // Clear all timers
       for (const timer of timersRef.current.values()) {
