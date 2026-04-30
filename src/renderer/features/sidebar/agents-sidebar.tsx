@@ -28,7 +28,7 @@ import {
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Check } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconTerminal2, IconCode } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconTerminal2, IconCode } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -3129,19 +3129,23 @@ export function AgentsSidebar({
       {/* Today's usage stats */}
       <UsageStatsFooter />
 
-      {/* Footer — Open Workspace */}
-      <div className="px-3 py-2.5 flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => {
-            setSettingsActiveTab("projects")
-            setSettingsDialogOpen(true)
-          }}
-          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] text-muted-foreground/35 hover:text-foreground hover:bg-foreground/[0.04] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]"
-        >
-          <IconLogin size={16} stroke={1.5} className="flex-shrink-0" />
-          <span className="font-medium">Open Workspace</span>
-        </button>
+      {/* Footer — Kanban + Settings */}
+      <div className="px-3 py-2.5 flex-shrink-0 flex items-center gap-1">
+        <KanbanButton />
+        <Tooltip delayDuration={500}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsDialogOpen(true)
+              }}
+              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+            >
+              <IconSettings size={18} stroke={1.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Settings</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )
