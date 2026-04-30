@@ -265,6 +265,13 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     staleTime: 30_000,
   })
 
+  const { data: geminiPlan } = trpc.usage.geminiPlan.useQuery(undefined, {
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+    retry: false,
+  })
+
   const { data: githubStats } = trpc.github.commitStats.useQuery(undefined, {
     refetchInterval: 5 * 60_000,
     refetchOnWindowFocus: true,
@@ -288,6 +295,12 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
   const gemini = today?.gemini ?? null
   const planUsage = plan?.available ? plan.usage : null
   const codexPlanUsage = codexPlan?.available ? codexPlan.usage : null
+  const geminiPlanUsage = geminiPlan?.available ? geminiPlan.usage : null
+  const hasGeminiPlanRows =
+    geminiPlanUsage !== null &&
+    (geminiPlanUsage.primary !== null ||
+      geminiPlanUsage.secondary !== null ||
+      geminiPlanUsage.tertiary !== null)
 
   return (
     <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[11px] select-none">
@@ -361,6 +374,41 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
               utilization={codexPlanUsage.secondary.utilization}
               resetsAt={codexPlanUsage.secondary.resetsAt}
               tooltipDescription="Codex 7-day rolling window."
+            />
+          )}
+        </>
+      )}
+
+      {hasGeminiPlanRows && geminiPlanUsage && (
+        <>
+          {!planUsage &&
+            !(codexPlanUsage && (codexPlanUsage.primary || codexPlanUsage.secondary)) && (
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-0.5">
+                Plan limits
+              </div>
+            )}
+          {geminiPlanUsage.primary && (
+            <PlanRow
+              label="Gemini · Pro"
+              utilization={geminiPlanUsage.primary.utilization}
+              resetsAt={geminiPlanUsage.primary.resetsAt}
+              tooltipDescription="Gemini Pro models · 24-hour quota."
+            />
+          )}
+          {geminiPlanUsage.secondary && (
+            <PlanRow
+              label="Gemini · Flash"
+              utilization={geminiPlanUsage.secondary.utilization}
+              resetsAt={geminiPlanUsage.secondary.resetsAt}
+              tooltipDescription="Gemini Flash models · 24-hour quota."
+            />
+          )}
+          {geminiPlanUsage.tertiary && (
+            <PlanRow
+              label="Gemini · Flash Lite"
+              utilization={geminiPlanUsage.tertiary.utilization}
+              resetsAt={geminiPlanUsage.tertiary.resetsAt}
+              tooltipDescription="Gemini Flash Lite models · 24-hour quota."
             />
           )}
         </>

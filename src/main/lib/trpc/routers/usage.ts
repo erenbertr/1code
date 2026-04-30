@@ -8,6 +8,10 @@ import {
 } from "../../claude-oauth-usage"
 import { readGeminiToday, type GeminiTodayUsage } from "../../gemini-usage"
 import { loadGeminiApiKey } from "../../gemini-auth-store"
+import {
+  fetchGeminiPlanUsage,
+  type GeminiPlanUsage,
+} from "../../gemini-plan-usage"
 import { publicProcedure, router } from "../index"
 
 export type ClaudeTodayUsage = {
@@ -549,6 +553,29 @@ async function readCodexPlanUsage(): Promise<CodexPlanUsageResult> {
   }
 }
 
+export type GeminiPlanUsageResult =
+  | { available: true; usage: GeminiPlanUsage; fetchedAt: string }
+  | {
+      available: false
+      reason: "not_logged_in" | "unsupported_auth" | "error"
+      message?: string
+      fetchedAt: string
+    }
+
+async function readGeminiPlanUsage(): Promise<GeminiPlanUsageResult> {
+  const fetchedAt = new Date().toISOString()
+  const result = await fetchGeminiPlanUsage()
+  if (result.ok) {
+    return { available: true, usage: result.usage, fetchedAt }
+  }
+  return {
+    available: false,
+    reason: result.reason,
+    message: result.message,
+    fetchedAt,
+  }
+}
+
 export const usageRouter = router({
   today: publicProcedure.query(async (): Promise<UsageTodayResult> => {
     const [claude, codex, gemini] = await Promise.all([
@@ -577,5 +604,8 @@ export const usageRouter = router({
   }),
   codexPlan: publicProcedure.query(
     async (): Promise<CodexPlanUsageResult> => readCodexPlanUsage(),
+  ),
+  geminiPlan: publicProcedure.query(
+    async (): Promise<GeminiPlanUsageResult> => readGeminiPlanUsage(),
   ),
 })
