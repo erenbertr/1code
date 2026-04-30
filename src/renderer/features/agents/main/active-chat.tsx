@@ -4804,7 +4804,10 @@ Make sure to preserve all functionality from both branches when resolving confli
         const model = (message as any)?.metadata?.model
         if (typeof model !== "string") continue
         const normalizedModel = model.toLowerCase()
-        if (normalizedModel.startsWith("gemini")) {
+        if (
+          normalizedModel.startsWith("gemini") ||
+          normalizedModel.startsWith("auto-gemini")
+        ) {
           return "gemini"
         }
         if (
