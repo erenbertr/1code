@@ -234,6 +234,13 @@ export const selectedProjectAtom = atomWithWindowStorage<SelectedProject>(
   { getOnInit: true },
 )
 
+// Per-project last opened chat ID — window-scoped, persisted.
+// Lets us restore the previously focused chat when the user switches back
+// to a project they were working in.
+export const lastChatIdPerProjectAtom = atomWithWindowStorage<
+  Record<string, string>
+>("agents:lastChatIdPerProject", {}, { getOnInit: true })
+
 export const lastSelectedAgentIdAtom = atomWithStorage<string>(
   "agents:lastSelectedAgentId",
   "claude-code",

@@ -230,6 +230,30 @@ function buildUserParts(
   return parts
 }
 
+function humanizeGeminiError(rawMessage: string): string {
+  if (!rawMessage) return "Stream failed"
+
+  if (
+    /MODEL_CAPACITY_EXHAUSTED|No capacity available for model|RESOURCE_EXHAUSTED/i.test(
+      rawMessage,
+    )
+  ) {
+    const modelMatch = rawMessage.match(/model ([\w.-]+)/i)
+    const which = modelMatch ? `"${modelMatch[1]}"` : "this Gemini model"
+    return `Google is currently at capacity for ${which}. Try Gemini 3 Flash, Gemini 2.5 Pro, or "Gemini 2.5" auto from the model picker, or retry in a few minutes.`
+  }
+
+  if (/EPIPE|stream prematurely closed|aborted/i.test(rawMessage)) {
+    return "Gemini CLI connection was lost. Pick a different model or retry."
+  }
+
+  if (/quota|rate ?limit/i.test(rawMessage)) {
+    return `Gemini quota/rate limit hit: ${rawMessage}`
+  }
+
+  return rawMessage
+}
+
 function buildModelMessageContent(
   prompt: string,
   images:
@@ -508,7 +532,9 @@ export const geminiRouter = router({
                 }
               },
               onError: (error) =>
-                error instanceof Error ? error.message : "Stream failed",
+                humanizeGeminiError(
+                  error instanceof Error ? error.message : String(error ?? ""),
+                ),
             })
 
             const reader = uiStream.getReader()
@@ -518,12 +544,13 @@ export const geminiRouter = router({
               if (done) break
 
               if (value?.type === "error") {
+                const rawText =
+                  typeof (value as any).errorText === "string"
+                    ? (value as any).errorText
+                    : "Stream failed"
                 safeEmit({
                   ...value,
-                  errorText:
-                    typeof (value as any).errorText === "string"
-                      ? (value as any).errorText
-                      : "Stream failed",
+                  errorText: humanizeGeminiError(rawText),
                 })
                 continue
               }
@@ -581,10 +608,13 @@ export const geminiRouter = router({
 
             safeComplete()
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "Stream failed"
+            const rawMessage =
+              error instanceof Error ? error.message : String(error ?? "")
             console.error("[gemini] chat stream error:", error)
-            safeEmit({ type: "error", errorText: message })
+            safeEmit({
+              type: "error",
+              errorText: humanizeGeminiError(rawMessage || "Stream failed"),
+            })
             safeEmit({ type: "finish" })
             safeComplete()
           } finally {
