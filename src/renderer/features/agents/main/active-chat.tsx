@@ -93,6 +93,7 @@ import {
   agentsSubChatsSidebarWidthAtom,
   agentsSubChatUnseenChangesAtom,
   agentsUnseenChangesAtom,
+  chatsAwaitingAnswerAtom,
   clearLoading,
   compactingSubChatsAtom,
   currentPlanPathAtomFamily,
@@ -165,6 +166,7 @@ import {
   getSubChatDraftFull
 } from "../lib/drafts"
 import { IPCChatTransport } from "../lib/ipc-chat-transport"
+import { isAssistantMessageQuestion } from "../lib/is-question"
 import {
   createQueueItem, createTextPreview, generateQueueId,
   toQueuedFile,
@@ -2195,6 +2197,16 @@ const ChatViewInner = memo(function ChatViewInner({
 
     clearPushedMark()
 
+    // User is replying — clear the "awaiting your answer" flag for this chat
+    if (parentChatId) {
+      const current = appStore.get(chatsAwaitingAnswerAtom)
+      if (current.has(parentChatId)) {
+        const next = new Set(current)
+        next.delete(parentChatId)
+        appStore.set(chatsAwaitingAnswerAtom, next)
+      }
+    }
+
     // Clear any expired questions when user sends a new message
     setExpiredQuestionsMap((current) => {
       if (current.has(subChatId)) {
@@ -3263,6 +3275,7 @@ export function ChatView({
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom)
   const setUnseenChanges = useSetAtom(agentsUnseenChangesAtom)
   const setSubChatUnseenChanges = useSetAtom(agentsSubChatUnseenChangesAtom)
+  const setChatsAwaitingAnswer = useSetAtom(chatsAwaitingAnswerAtom)
   const setJustCreatedIds = useSetAtom(justCreatedIdsAtom)
   const selectedChatId = useAtomValue(selectedAgentChatIdAtom)
   const setUndoStack = useSetAtom(undoStackAtom)
@@ -5118,6 +5131,34 @@ Make sure to preserve all functionality from both branches when resolving confli
             }
           }
 
+          // Mark chat as awaiting an answer when the model's final message is a
+          // text question. Persists across views — cleared when the user replies.
+          {
+            const finalMessages = (newChat as any).messages || []
+            let lastAssistant: any = null
+            for (let i = finalMessages.length - 1; i >= 0; i--) {
+              if (finalMessages[i]?.role === "assistant") {
+                lastAssistant = finalMessages[i]
+                break
+              }
+            }
+            const isQuestion = isAssistantMessageQuestion(lastAssistant?.parts)
+            setChatsAwaitingAnswer((prev: Set<string>) => {
+              const has = prev.has(chatId)
+              if (isQuestion && !has) {
+                const next = new Set(prev)
+                next.add(chatId)
+                return next
+              }
+              if (!isQuestion && has) {
+                const next = new Set(prev)
+                next.delete(chatId)
+                return next
+              }
+              return prev
+            })
+          }
+
           // Show native notification if not manually aborted
           // (the hook handles focus/preference checks internally)
           if (!wasManuallyAborted) {
@@ -5385,6 +5426,34 @@ Make sure to preserve all functionality from both branches when resolving confli
                 }
               }
             }
+          }
+
+          // Mark chat as awaiting an answer when the model's final message is a
+          // text question. Persists across views — cleared when the user replies.
+          {
+            const finalMessages = (newChat as any).messages || []
+            let lastAssistant: any = null
+            for (let i = finalMessages.length - 1; i >= 0; i--) {
+              if (finalMessages[i]?.role === "assistant") {
+                lastAssistant = finalMessages[i]
+                break
+              }
+            }
+            const isQuestion = isAssistantMessageQuestion(lastAssistant?.parts)
+            setChatsAwaitingAnswer((prev: Set<string>) => {
+              const has = prev.has(chatId)
+              if (isQuestion && !has) {
+                const next = new Set(prev)
+                next.add(chatId)
+                return next
+              }
+              if (!isQuestion && has) {
+                const next = new Set(prev)
+                next.delete(chatId)
+                return next
+              }
+              return prev
+            })
           }
 
           // Show native notification if not manually aborted

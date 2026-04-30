@@ -85,6 +85,7 @@ import {
   loadingSubChatsAtom,
   pushedChatIdsAtom,
   agentsUnseenChangesAtom,
+  chatsAwaitingAnswerAtom,
   agentsSubChatUnseenChangesAtom,
   archivePopoverOpenAtom,
   agentsDebugModeAtom,
@@ -1501,6 +1502,7 @@ export function AgentsSidebar({
 
   // Read unseen changes from global atoms
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom)
+  const chatsAwaitingAnswer = useAtomValue(chatsAwaitingAnswerAtom)
   const justCreatedIds = useAtomValue(justCreatedIdsAtom)
 
   // Haptic feedback
@@ -3002,7 +3004,9 @@ export function AgentsSidebar({
                         const renderChatRow = (chat: ChatType) => {
                           const isSelected = selectedChatId === chat.id
                           const isLoading = loadingChatIds.has(chat.id)
-                          const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
+                          const hasPendingQuestion =
+                            workspacePendingQuestions.has(chat.id) ||
+                            (!isLoading && chatsAwaitingAnswer.has(chat.id))
                           const hasPendingPlan = workspacePendingPlans.has(chat.id)
                           const isActive = isLoading || hasPendingQuestion || hasPendingPlan
                           const isPushed = !isActive && pushedChatIds.has(chat.id)
@@ -3155,7 +3159,9 @@ export function AgentsSidebar({
                         ]
                         for (const chat of group.chats) {
                           const isLoading = loadingChatIds.has(chat.id)
-                          const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
+                          const hasPendingQuestion =
+                            workspacePendingQuestions.has(chat.id) ||
+                            (!isLoading && chatsAwaitingAnswer.has(chat.id))
                           const hasPendingPlan = workspacePendingPlans.has(chat.id)
                           const isActive = isLoading || hasPendingQuestion || hasPendingPlan
                           const isPushed = !isActive && pushedChatIds.has(chat.id)

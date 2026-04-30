@@ -16,6 +16,7 @@ export {
   selectedProjectAtom,
   agentsUnseenChangesAtom,
   agentsSubChatUnseenChangesAtom,
+  chatsAwaitingAnswerAtom,
   loadingSubChatsAtom,
   pushedChatIdsAtom,
   setLoading,
