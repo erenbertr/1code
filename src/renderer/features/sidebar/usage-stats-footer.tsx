@@ -178,6 +178,68 @@ function PlanRow({
   )
 }
 
+function GithubCommitsRow({
+  today,
+  week,
+  month,
+  login,
+}: {
+  today: number
+  week: number
+  month: number
+  login: string
+}) {
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 px-1 py-0.5 rounded",
+            "hover:bg-muted/50 cursor-default transition-colors",
+          )}
+        >
+          <span className="text-muted-foreground/80">Commits</span>
+          <span className="flex items-center gap-1.5 font-mono text-foreground/80">
+            <span>{formatNumber(today)}</span>
+            <span className="text-muted-foreground/60">today</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{formatNumber(week)}</span>
+            <span className="text-muted-foreground/60">wk</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{formatNumber(month)}</span>
+            <span className="text-muted-foreground/60">mo</span>
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="end" className="min-w-[180px]">
+        <div className="font-medium text-foreground mb-1">
+          GitHub commits {login ? `· @${login}` : ""}
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex justify-between gap-4 text-[11px]">
+            <span className="text-muted-foreground">Today</span>
+            <span className="font-mono text-foreground">
+              {formatNumber(today)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 text-[11px]">
+            <span className="text-muted-foreground">This week</span>
+            <span className="font-mono text-foreground">
+              {formatNumber(week)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 text-[11px]">
+            <span className="text-muted-foreground">This month</span>
+            <span className="font-mono text-foreground">
+              {formatNumber(month)}
+            </span>
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export const UsageStatsFooter = memo(function UsageStatsFooter() {
   const { data: today, isLoading: loadingToday } = trpc.usage.today.useQuery(
     undefined,
@@ -203,6 +265,13 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     staleTime: 30_000,
   })
 
+  const { data: githubStats } = trpc.github.commitStats.useQuery(undefined, {
+    refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
+    retry: false,
+  })
+
   if (loadingToday && !today && loadingPlan && !plan) {
     return (
       <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[10px] text-muted-foreground/40 select-none">
@@ -216,6 +285,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
 
   const claude = today?.claude ?? null
   const codex = today?.codex ?? null
+  const gemini = today?.gemini ?? null
   const planUsage = plan?.available ? plan.usage : null
   const codexPlanUsage = codexPlan?.available ? codexPlan.usage : null
 
@@ -323,6 +393,26 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
           { label: "Total tokens", value: codex?.tokens ?? 0 },
         ]}
       />
+      <ProviderRow
+        label="Gemini"
+        tokens={gemini?.tokens ?? 0}
+        sessions={gemini?.sessions ?? 0}
+        available={gemini !== null}
+        breakdown={[
+          { label: "Sessions", value: gemini?.sessions ?? 0 },
+          { label: "Input tokens", value: gemini?.inputTokens ?? 0 },
+          { label: "Output tokens", value: gemini?.outputTokens ?? 0 },
+          { label: "Total tokens", value: gemini?.tokens ?? 0 },
+        ]}
+      />
+      {githubStats?.available && (
+        <GithubCommitsRow
+          today={githubStats.stats.today}
+          week={githubStats.stats.week}
+          month={githubStats.stats.month}
+          login={githubStats.stats.login}
+        />
+      )}
     </div>
   )
 })
