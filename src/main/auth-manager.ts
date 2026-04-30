@@ -173,16 +173,24 @@ export class AuthManager {
 
   /**
    * Check if user is authenticated
+   * Auth bypassed - always returns true (local-only mode)
    */
   isAuthenticated(): boolean {
-    return this.store.isAuthenticated()
+    return true
   }
 
   /**
    * Get current user
+   * Auth bypassed - returns a local stub user (local-only mode)
    */
   getUser(): AuthUser | null {
-    return this.store.getUser()
+    return {
+      id: "local-user",
+      email: "local@1code.dev",
+      name: "Local User",
+      imageUrl: null,
+      username: "local",
+    }
   }
 
   /**
