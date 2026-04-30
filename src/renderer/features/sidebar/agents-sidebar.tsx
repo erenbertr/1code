@@ -111,6 +111,7 @@ import {
 import { useHotkeys } from "react-hotkeys-hook"
 import { Checkbox } from "../../components/ui/checkbox"
 import { useHaptic } from "./hooks/use-haptic"
+import { UsageStatsFooter } from "./usage-stats-footer"
 import { TypewriterText } from "../../components/ui/typewriter-text"
 import { exportChat, copyChat, type ExportFormat } from "../agents/lib/export-chat"
 
@@ -3047,6 +3048,9 @@ export function AgentsSidebar({
           className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none bg-gradient-to-t from-tl-background via-tl-background/50 to-transparent transition-opacity duration-150 opacity-0"
         />
       </div>
+
+      {/* Today's usage stats */}
+      <UsageStatsFooter />
 
       {/* Footer — Open Workspace */}
       <div className="px-3 py-2.5 flex-shrink-0">
