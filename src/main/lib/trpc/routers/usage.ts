@@ -7,6 +7,7 @@ import {
   type ClaudeOAuthUsage,
 } from "../../claude-oauth-usage"
 import { readGeminiToday, type GeminiTodayUsage } from "../../gemini-usage"
+import { loadGeminiApiKey } from "../../gemini-auth-store"
 import { publicProcedure, router } from "../index"
 
 export type ClaudeTodayUsage = {
@@ -555,7 +556,11 @@ export const usageRouter = router({
       readCodexToday(),
       readGeminiToday(),
     ])
-    return { claude, codex, gemini, date: todayLocalISO() }
+    let geminiResolved = gemini
+    if (geminiResolved === null && loadGeminiApiKey()) {
+      geminiResolved = { tokens: 0, inputTokens: 0, outputTokens: 0, sessions: 0 }
+    }
+    return { claude, codex, gemini: geminiResolved, date: todayLocalISO() }
   }),
   plan: publicProcedure.query(async (): Promise<ClaudePlanUsageResult> => {
     const result = await fetchClaudeOAuthUsage()

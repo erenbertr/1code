@@ -267,7 +267,7 @@ export const lastSelectedCodexThinkingAtom = atomWithStorage<CodexThinkingPrefer
 
 export const lastSelectedGeminiModelIdAtom = atomWithStorage<string>(
   "agents:lastSelectedGeminiModelId",
-  "gemini-2.5-pro",
+  "gemini-3-pro-preview",
   undefined,
   { getOnInit: true },
 )
