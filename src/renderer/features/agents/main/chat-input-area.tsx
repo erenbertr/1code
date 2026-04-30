@@ -512,7 +512,9 @@ export const ChatInputArea = memo(function ChatInputArea({
   const codexUiModels = useMemo(
     () => {
       let models = hasAppCodexApiKey
-        ? CODEX_MODELS.filter((model) => model.id !== "gpt-5.3-codex")
+        ? CODEX_MODELS.filter(
+            (model) => model.id !== "gpt-5.3-codex" && model.id !== "gpt-5.5",
+          )
         : CODEX_MODELS
       return models.filter((model) => !hiddenModels.includes(model.id))
     },

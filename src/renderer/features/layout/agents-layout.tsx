@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, useMemo, useRef } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { toast } from "sonner"
 import { AnimatePresence, motion } from "motion/react"
-import { IconLayoutSidebarLeftCollapse } from "@tabler/icons-react"
 import { isDesktopApp } from "../../lib/utils/platform"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 import { DURATION_NORMAL } from "../../lib/motion"
@@ -327,26 +326,6 @@ export function AgentsLayout() {
               isDesktop={isDesktop}
               className="absolute left-[15px] top-[12px]"
             />
-
-            {/* Sidebar toggle — same icon & position whether open or closed */}
-            <div
-              className="absolute top-[8px] flex items-center gap-0.5"
-              style={{
-                left: 90,
-                // @ts-expect-error - WebKit-specific property
-                WebkitAppRegion: "no-drag",
-                pointerEvents: "auto",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setSidebarOpen((prev) => !prev)}
-                className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground/50 hover:text-foreground hover:bg-foreground/[0.08] transition-colors duration-150"
-                aria-label="Toggle sidebar"
-              >
-                <IconLayoutSidebarLeftCollapse size={14} stroke={1.5} />
-              </button>
-            </div>
           </div>
         )}
 

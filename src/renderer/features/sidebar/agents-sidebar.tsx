@@ -28,7 +28,7 @@ import {
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Check } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconTerminal2, IconCode } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconTerminal2, IconCode } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -1371,7 +1371,6 @@ interface SidebarHeaderProps {
   handleSidebarMouseEnter: () => void
   handleSidebarMouseLeave: (e: React.MouseEvent) => void
   closeButtonRef: React.RefObject<HTMLDivElement | null>
-  onSearchClick?: () => void
 }
 
 const SidebarHeader = memo(function SidebarHeader({
@@ -1379,7 +1378,6 @@ const SidebarHeader = memo(function SidebarHeader({
   isFullscreen,
   handleSidebarMouseEnter,
   handleSidebarMouseLeave,
-  onSearchClick,
 }: SidebarHeaderProps) {
   return (
     <div
@@ -1389,32 +1387,6 @@ const SidebarHeader = memo(function SidebarHeader({
     >
       {/* Spacer for macOS traffic lights — pushes sidebar content below the title bar */}
       <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
-
-      {/* Search icon — positioned in the title bar row, right of the layout toggle (managed by AgentsLayout) */}
-      {isDesktop && !isFullscreen && (
-        <div
-          className="absolute top-[8px] z-10"
-          style={{
-            left: 118,
-            // @ts-expect-error - WebKit-specific property
-            WebkitAppRegion: "no-drag",
-          }}
-        >
-          <Tooltip delayDuration={500}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onSearchClick}
-                className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground/50 hover:text-foreground hover:bg-foreground/[0.08] transition-colors duration-150"
-                aria-label="Search"
-              >
-                <IconSearch size={14} stroke={1.5} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Search</TooltipContent>
-          </Tooltip>
-        </div>
-      )}
     </div>
   )
 })
@@ -2804,7 +2776,6 @@ export function AgentsSidebar({
         handleSidebarMouseEnter={handleSidebarMouseEnter}
         handleSidebarMouseLeave={handleSidebarMouseLeave}
         closeButtonRef={closeButtonRef}
-        onSearchClick={() => searchInputRef.current?.focus()}
       />
 
       {/* Hidden search input for keyboard-triggered search */}
