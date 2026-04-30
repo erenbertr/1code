@@ -299,6 +299,17 @@ function getGeminiFallbackModelIds(modelId: string): string[] {
   return [...new Set(fallbacks.filter((fallback) => fallback !== modelId))]
 }
 
+function getGeminiPrimaryModelId(modelId: string): string {
+  // Gemini CLI can spend a long time internally retrying Pro models after a
+  // capacity 429. Use the CLI's auto aliases first so it can pick a live model.
+  const primaryByModel: Record<string, string> = {
+    "gemini-3.1-pro-preview": "auto-gemini-3",
+    "gemini-2.5-pro": "auto-gemini-2.5",
+  }
+
+  return primaryByModel[modelId] ?? modelId
+}
+
 function humanizeGeminiError(rawMessage: string, triedModels?: string[]): string {
   if (!rawMessage) return "Stream failed"
 
@@ -768,10 +779,19 @@ export const geminiRouter = router({
               return { ok: true }
             }
 
+            const primaryModelId = getGeminiPrimaryModelId(input.modelId)
             const attemptedModels = [
-              input.modelId,
+              primaryModelId,
               ...getGeminiFallbackModelIds(input.modelId),
-            ]
+              ...getGeminiFallbackModelIds(primaryModelId),
+            ].filter((modelId, index, allModels) => {
+              const isSkippedOriginalModel =
+                modelId === input.modelId && modelId !== primaryModelId
+              return (
+                !isSkippedOriginalModel &&
+                allModels.indexOf(modelId) === index
+              )
+            })
             let lastCapacityError: string | undefined
 
             for (let index = 0; index < attemptedModels.length; index++) {
