@@ -1639,15 +1639,6 @@ export function NewChatForm({
 
       <div className="flex flex-1 items-center justify-center overflow-y-auto relative">
         <div className="w-full max-w-2xl space-y-4 md:space-y-6 relative z-10 px-4">
-          {/* Title - only show when project is selected */}
-          {validatedProject && (
-            <div className="text-center">
-              <h1 className="text-2xl md:text-4xl font-medium tracking-tight">
-                What do you want to get done?
-              </h1>
-            </div>
-          )}
-
           {/* Input Area or Select Repo State */}
           {!validatedProject ? (
             // No project selected - show select repo button (like Sign in button)
