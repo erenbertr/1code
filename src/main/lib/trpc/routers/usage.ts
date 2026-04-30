@@ -6,6 +6,7 @@ import {
   fetchClaudeOAuthUsage,
   type ClaudeOAuthUsage,
 } from "../../claude-oauth-usage"
+import { readGeminiToday, type GeminiTodayUsage } from "../../gemini-usage"
 import { publicProcedure, router } from "../index"
 
 export type ClaudeTodayUsage = {
@@ -25,6 +26,7 @@ export type CodexTodayUsage = {
 export type UsageTodayResult = {
   claude: ClaudeTodayUsage | null
   codex: CodexTodayUsage | null
+  gemini: GeminiTodayUsage | null
   date: string
 }
 
@@ -548,11 +550,12 @@ async function readCodexPlanUsage(): Promise<CodexPlanUsageResult> {
 
 export const usageRouter = router({
   today: publicProcedure.query(async (): Promise<UsageTodayResult> => {
-    const [claude, codex] = await Promise.all([
+    const [claude, codex, gemini] = await Promise.all([
       readClaudeToday(),
       readCodexToday(),
+      readGeminiToday(),
     ])
-    return { claude, codex, date: todayLocalISO() }
+    return { claude, codex, gemini, date: todayLocalISO() }
   }),
   plan: publicProcedure.query(async (): Promise<ClaudePlanUsageResult> => {
     const result = await fetchClaudeOAuthUsage()

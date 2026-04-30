@@ -265,6 +265,44 @@ export const lastSelectedCodexThinkingAtom = atomWithStorage<CodexThinkingPrefer
   { getOnInit: true },
 )
 
+export const lastSelectedGeminiModelIdAtom = atomWithStorage<string>(
+  "agents:lastSelectedGeminiModelId",
+  "gemini-2.5-pro",
+  undefined,
+  { getOnInit: true },
+)
+
+const subChatGeminiModelIdsStorageAtom = atomWithStorage<Record<string, string>>(
+  "agents:subChatGeminiModelIds",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const subChatGeminiModelIdAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => {
+      if (!subChatId) return get(lastSelectedGeminiModelIdAtom)
+      return (
+        get(subChatGeminiModelIdsStorageAtom)[subChatId] ??
+        get(lastSelectedGeminiModelIdAtom)
+      )
+    },
+    (get, set, newModelId: string) => {
+      if (!subChatId) {
+        set(lastSelectedGeminiModelIdAtom, newModelId)
+        return
+      }
+      const current = get(subChatGeminiModelIdsStorageAtom)
+      if (current[subChatId] === newModelId) return
+      set(subChatGeminiModelIdsStorageAtom, {
+        ...current,
+        [subChatId]: newModelId,
+      })
+    },
+  ),
+)
+
 // Storage for per-subChat Claude model selection.
 // Falls back to lastSelectedModelIdAtom when sub-chat has no explicit selection yet.
 const subChatModelIdsStorageAtom = atomWithStorage<Record<string, string>>(

@@ -33,6 +33,7 @@ import {
   lastSelectedAgentIdAtom,
   lastSelectedCodexModelIdAtom,
   lastSelectedCodexThinkingAtom,
+  lastSelectedGeminiModelIdAtom,
   lastSelectedBranchesAtom,
   lastSelectedModelIdAtom,
   lastSelectedRepoAtom,
@@ -119,6 +120,7 @@ import {
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
+  GEMINI_MODELS,
   type CodexThinkingLevel,
 } from "../lib/models"
 type PlanType = string
@@ -324,9 +326,14 @@ export function NewChatForm({
   const [lastSelectedCodexThinking, setLastSelectedCodexThinking] = useAtom(
     lastSelectedCodexThinkingAtom,
   )
+  const [lastSelectedGeminiModelId, setLastSelectedGeminiModelId] = useAtom(
+    lastSelectedGeminiModelIdAtom,
+  )
   const [thinkingEnabled, setThinkingEnabled] = useAtom(
     extendedThinkingEnabledAtom,
   )
+  const { data: geminiAuth } = trpc.gemini.getAuthStatus.useQuery()
+  const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
 
   const [selectedModel, setSelectedModel] = useState(
     () =>
@@ -361,6 +368,18 @@ export function NewChatForm({
       codexUiModels[0] ||
       CODEX_MODELS[0]!,
     [codexUiModels, lastSelectedCodexModelId],
+  )
+
+  const geminiUiModels = useMemo(
+    () => GEMINI_MODELS.filter((model) => !hiddenModels.includes(model.id)),
+    [hiddenModels],
+  )
+  const selectedGeminiModel = useMemo(
+    () =>
+      geminiUiModels.find((model) => model.id === lastSelectedGeminiModelId) ||
+      geminiUiModels[0] ||
+      GEMINI_MODELS[0]!,
+    [geminiUiModels, lastSelectedGeminiModelId],
   )
 
   const selectedCodexThinking = useMemo<CodexThinkingLevel>(() => {
@@ -1868,12 +1887,14 @@ export function NewChatForm({
                         <AgentModelSelector
                           open={isModelDropdownOpen}
                           onOpenChange={setIsModelDropdownOpen}
-                          selectedAgentId={selectedAgent.id as "claude-code" | "codex"}
+                          selectedAgentId={selectedAgent.id as "claude-code" | "codex" | "gemini"}
                           onSelectedAgentIdChange={(provider) => {
                             if (provider === "claude-code") {
                               setSelectedAgent(claudeAgent)
-                            } else {
+                            } else if (provider === "codex") {
                               setSelectedAgent(enabledAgents.find((agent) => agent.id === "codex") || fallbackAgent)
+                            } else {
+                              setSelectedAgent(enabledAgents.find((agent) => agent.id === "gemini") || fallbackAgent)
                             }
                             setLastSelectedAgentId(provider)
                           }}
@@ -1923,6 +1944,16 @@ export function NewChatForm({
                             selectedThinking: selectedCodexThinking,
                             onSelectThinking: setLastSelectedCodexThinking,
                             isConnected: codexOnboardingCompleted,
+                          }}
+                          gemini={{
+                            models: geminiUiModels,
+                            selectedModelId: selectedGeminiModel.id,
+                            onSelectModel: (modelId) => {
+                              const model = geminiUiModels.find((m) => m.id === modelId)
+                              if (!model) return
+                              setLastSelectedGeminiModelId(model.id)
+                            },
+                            isConnected: hasGeminiKey,
                           }}
                         />
                       </div>

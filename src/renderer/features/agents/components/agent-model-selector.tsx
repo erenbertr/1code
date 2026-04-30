@@ -34,7 +34,13 @@ const CodexIcon = ({ className }: { className?: string }) => (
   </svg>
 )
 
-export type AgentProviderId = "claude-code" | "codex"
+const GeminiIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12 2L13.09 8.26L20 9.27L15 14.14L16.18 21.02L12 17.77L7.82 21.02L9 14.14L4 9.27L10.91 8.26L12 2Z" />
+  </svg>
+)
+
+export type AgentProviderId = "claude-code" | "codex" | "gemini"
 
 type ClaudeModelOption = {
   id: string
@@ -46,6 +52,12 @@ type CodexModelOption = {
   id: string
   name: string
   thinkings: CodexThinkingLevel[]
+}
+
+type GeminiModelOption = {
+  id: string
+  name: string
+  version: string
 }
 
 interface AgentModelSelectorProps {
@@ -81,11 +93,18 @@ interface AgentModelSelectorProps {
     onSelectThinking: (thinking: CodexThinkingLevel) => void
     isConnected: boolean
   }
+  gemini?: {
+    models: GeminiModelOption[]
+    selectedModelId: string
+    onSelectModel: (modelId: string) => void
+    isConnected: boolean
+  }
 }
 
 type FlatModelItem =
   | { type: "claude"; model: ClaudeModelOption }
   | { type: "codex"; model: CodexModelOption }
+  | { type: "gemini"; model: GeminiModelOption }
   | { type: "ollama"; modelName: string; isRecommended: boolean }
   | { type: "custom" }
 
@@ -323,6 +342,7 @@ export function AgentModelSelector({
   onContinueWithProvider,
   claude,
   codex,
+  gemini,
 }: AgentModelSelectorProps) {
   const [search, setSearch] = useState("")
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
@@ -355,8 +375,14 @@ export function AgentModelSelector({
       items.push({ type: "codex", model: m })
     }
 
+    if (gemini) {
+      for (const m of gemini.models) {
+        items.push({ type: "gemini", model: m })
+      }
+    }
+
     return items
-  }, [claude, codex])
+  }, [claude, codex, gemini])
 
   // Filter by search
   const filteredModels = useMemo(() => {
@@ -372,6 +398,11 @@ export function AgentModelSelector({
           )
         case "codex":
           return item.model.name.toLowerCase().includes(q)
+        case "gemini":
+          return (
+            item.model.name.toLowerCase().includes(q) ||
+            item.model.version.toLowerCase().includes(q)
+          )
         case "ollama":
           return item.modelName.toLowerCase().includes(q)
         case "custom":
@@ -397,6 +428,8 @@ export function AgentModelSelector({
       <Zap className="h-4 w-4" />
     ) : selectedAgentId === "codex" ? (
       <CodexIcon className="h-3.5 w-3.5" />
+    ) : selectedAgentId === "gemini" ? (
+      <GeminiIcon className="h-3.5 w-3.5" />
     ) : (
       <ClaudeCodeIcon className="h-3.5 w-3.5" />
     )
@@ -407,6 +440,8 @@ export function AgentModelSelector({
         return selectedAgentId === "claude-code" && claude.selectedModelId === item.model.id
       case "codex":
         return selectedAgentId === "codex" && codex.selectedModelId === item.model.id
+      case "gemini":
+        return selectedAgentId === "gemini" && gemini?.selectedModelId === item.model.id
       case "ollama":
         return selectedAgentId === "claude-code" && claude.selectedOllamaModel === item.modelName
       case "custom":
@@ -415,7 +450,9 @@ export function AgentModelSelector({
   }
 
   const getItemProvider = (item: FlatModelItem): AgentProviderId => {
-    return item.type === "codex" ? "codex" : "claude-code"
+    if (item.type === "codex") return "codex"
+    if (item.type === "gemini") return "gemini"
+    return "claude-code"
   }
 
   const isItemDisabled = (item: FlatModelItem): boolean => {
@@ -480,6 +517,12 @@ export function AgentModelSelector({
         onSelectedAgentIdChange("codex")
         codex.onSelectModel(item.model.id)
         break
+      case "gemini":
+        if (!canSelectProvider("gemini")) return
+        if (!gemini) return
+        onSelectedAgentIdChange("gemini")
+        gemini.onSelectModel(item.model.id)
+        break
       case "ollama":
         if (!canSelectProvider("claude-code")) return
         onSelectedAgentIdChange("claude-code")
@@ -499,6 +542,8 @@ export function AgentModelSelector({
         return <ClaudeCodeIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       case "codex":
         return <CodexIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      case "gemini":
+        return <GeminiIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       case "ollama":
         return <Zap className="h-4 w-4 text-muted-foreground shrink-0" />
       case "custom":
@@ -511,6 +556,8 @@ export function AgentModelSelector({
       case "claude":
         return `${item.model.name} ${item.model.version}`
       case "codex":
+        return item.model.name
+      case "gemini":
         return item.model.name
       case "ollama":
         return item.modelName + (item.isRecommended ? " (recommended)" : "")
@@ -525,6 +572,8 @@ export function AgentModelSelector({
         return `claude-${item.model.id}`
       case "codex":
         return `codex-${item.model.id}`
+      case "gemini":
+        return `gemini-${item.model.id}`
       case "ollama":
         return `ollama-${item.modelName}`
       case "custom":

@@ -57,9 +57,11 @@ import { cn } from "../../../lib/utils"
 import {
   lastSelectedCodexModelIdAtom,
   lastSelectedCodexThinkingAtom,
+  lastSelectedGeminiModelIdAtom,
   lastSelectedModelIdAtom,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
+  subChatGeminiModelIdAtomFamily,
   subChatModelIdAtomFamily,
   subChatModeAtomFamily,
   getNextMode,
@@ -78,6 +80,7 @@ import {
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
+  GEMINI_MODELS,
   type CodexThinkingLevel,
 } from "../lib/models"
 import type { DiffTextContext, SelectedTextContext } from "../lib/queue-utils"
@@ -183,7 +186,7 @@ export interface ChatInputAreaProps {
   // Context
   subChatId: string
   parentChatId: string
-  provider?: "claude-code" | "codex"
+  provider?: "claude-code" | "codex" | "gemini"
   teamId?: string
   repository?: string
   sandboxId?: string
@@ -200,9 +203,9 @@ export interface ChatInputAreaProps {
   // Callback to send message with question answer (Enter sends immediately, not to queue)
   onSubmitWithQuestionAnswer?: () => void
   // Callback to switch provider for brand new (empty) sub-chats
-  onProviderChange?: (provider: "claude-code" | "codex") => void
+  onProviderChange?: (provider: "claude-code" | "codex" | "gemini") => void
   // Callback to continue chat with a different provider (creates new sub-chat with history)
-  onContinueWithProvider?: (provider: "claude-code" | "codex") => void
+  onContinueWithProvider?: (provider: "claude-code" | "codex" | "gemini") => void
   // Whether this sub-chat tab is the active/visible one (prevents window-level hotkeys in background tabs)
   isActive?: boolean
 }
@@ -475,6 +478,16 @@ export const ChatInputArea = memo(function ChatInputArea({
   const setLastSelectedModelId = useSetAtom(lastSelectedModelIdAtom)
   const setLastSelectedCodexModelId = useSetAtom(lastSelectedCodexModelIdAtom)
   const setLastSelectedCodexThinking = useSetAtom(lastSelectedCodexThinkingAtom)
+  const subChatGeminiModelIdAtom = useMemo(
+    () => subChatGeminiModelIdAtomFamily(subChatId),
+    [subChatId],
+  )
+  const [selectedSubChatGeminiModelId, setSelectedSubChatGeminiModelId] = useAtom(
+    subChatGeminiModelIdAtom,
+  )
+  const setLastSelectedGeminiModelId = useSetAtom(lastSelectedGeminiModelIdAtom)
+  const { data: geminiAuth } = trpc.gemini.getAuthStatus.useQuery()
+  const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
   const availableModels = useAvailableModels()
   const [selectedModel, setSelectedModel] = useState(
@@ -519,6 +532,17 @@ export const ChatInputArea = memo(function ChatInputArea({
       return models.filter((model) => !hiddenModels.includes(model.id))
     },
     [hasAppCodexApiKey, hiddenModels],
+  )
+  const geminiUiModels = useMemo(
+    () => GEMINI_MODELS.filter((model) => !hiddenModels.includes(model.id)),
+    [hiddenModels],
+  )
+  const selectedGeminiModel = useMemo(
+    () =>
+      geminiUiModels.find((m) => m.id === selectedSubChatGeminiModelId) ||
+      geminiUiModels[0] ||
+      GEMINI_MODELS[0]!,
+    [geminiUiModels, selectedSubChatGeminiModelId],
   )
   const selectedCodexModel = useMemo(
     () =>
@@ -1600,6 +1624,17 @@ export const ChatInputArea = memo(function ChatInputArea({
                           setLastSelectedCodexThinking(thinking)
                         },
                         isConnected: codexOnboardingCompleted,
+                      }}
+                      gemini={{
+                        models: geminiUiModels,
+                        selectedModelId: selectedGeminiModel.id,
+                        onSelectModel: (modelId) => {
+                          const model = geminiUiModels.find((m) => m.id === modelId)
+                          if (!model) return
+                          setSelectedSubChatGeminiModelId(model.id)
+                          setLastSelectedGeminiModelId(model.id)
+                        },
+                        isConnected: hasGeminiKey,
                       }}
                     />
                   </div>
