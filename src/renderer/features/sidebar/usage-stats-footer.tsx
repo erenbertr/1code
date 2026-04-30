@@ -28,6 +28,14 @@ function formatPercent(utilization: number | null): string {
   return `${Math.round(utilization)}%`
 }
 
+function formatUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—"
+  if (value === 0) return "$0.00"
+  if (value < 0.01) return `$${value.toFixed(4)}`
+  if (value < 1) return `$${value.toFixed(3)}`
+  return `$${value.toFixed(2)}`
+}
+
 function formatResetIn(resetsAt: string | null): string | null {
   if (!resetsAt) return null
   const target = new Date(resetsAt).getTime()
@@ -306,6 +314,16 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     retry: false,
   })
 
+  const { data: openRouterPlan } = trpc.usage.openRouterPlan.useQuery(
+    undefined,
+    {
+      refetchInterval: 60_000,
+      refetchOnWindowFocus: true,
+      staleTime: 30_000,
+      retry: false,
+    },
+  )
+
   const {
     data: githubStats,
     refetch: refetchGithubStats,
@@ -331,9 +349,13 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
   const claude = today?.claude ?? null
   const codex = today?.codex ?? null
   const gemini = today?.gemini ?? null
+  const openrouter = today?.openrouter ?? null
   const planUsage = plan?.available ? plan.usage : null
   const codexPlanUsage = codexPlan?.available ? codexPlan.usage : null
   const geminiPlanUsage = geminiPlan?.available ? geminiPlan.usage : null
+  const openRouterPlanUsage = openRouterPlan?.available
+    ? openRouterPlan.usage
+    : null
 
   const claudeCells: QuotaCell[] = [
     planUsage?.fiveHour && {
@@ -422,8 +444,31 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     },
   ].filter(Boolean) as QuotaCell[]
 
+  const openRouterCells: QuotaCell[] = openRouterPlanUsage
+    ? [
+        {
+          key: "or-credits",
+          label: "Credits",
+          fullLabel: openRouterPlanUsage.label
+            ? `OpenRouter · ${openRouterPlanUsage.label}`
+            : "OpenRouter · credits",
+          utilization: openRouterPlanUsage.utilization,
+          resetsAt: null,
+          tooltipDescription:
+            openRouterPlanUsage.limitUsd !== null
+              ? `${formatUsd(openRouterPlanUsage.usageUsd ?? 0)} of ${formatUsd(openRouterPlanUsage.limitUsd)} spent`
+              : openRouterPlanUsage.isFreeTier
+                ? "Free tier — no spend cap configured"
+                : "No spend cap configured",
+        },
+      ]
+    : []
+
   const hasAnyPlanRow =
-    claudeCells.length > 0 || codexCells.length > 0 || geminiCells.length > 0
+    claudeCells.length > 0 ||
+    codexCells.length > 0 ||
+    geminiCells.length > 0 ||
+    openRouterCells.length > 0
 
   return (
     <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[11px] select-none">
@@ -435,6 +480,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
           <ProviderQuotaRow name="Claude" cells={claudeCells} />
           <ProviderQuotaRow name="Codex" cells={codexCells} />
           <ProviderQuotaRow name="Gemini" cells={geminiCells} />
+          <ProviderQuotaRow name="Router" cells={openRouterCells} />
         </>
       )}
 
@@ -477,6 +523,64 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
           { label: "Total tokens", value: gemini?.tokens ?? 0 },
         ]}
       />
+      {openrouter !== null && (
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-2 px-1 py-0.5 rounded",
+                "hover:bg-muted/50 cursor-default transition-colors",
+              )}
+            >
+              <span className="text-muted-foreground/80">OpenRouter</span>
+              <span className="flex items-center gap-1.5 font-mono text-foreground/80">
+                <span>{formatTokens(openrouter.tokens)}</span>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="text-muted-foreground">
+                  {formatUsd(openrouter.costUsd)}
+                </span>
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right" align="end" className="min-w-[180px]">
+            <div className="font-medium text-foreground mb-1">
+              OpenRouter · today
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex justify-between gap-4 text-[11px]">
+                <span className="text-muted-foreground">Sessions</span>
+                <span className="font-mono text-foreground">
+                  {formatNumber(openrouter.sessions)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4 text-[11px]">
+                <span className="text-muted-foreground">Input tokens</span>
+                <span className="font-mono text-foreground">
+                  {formatNumber(openrouter.inputTokens)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4 text-[11px]">
+                <span className="text-muted-foreground">Output tokens</span>
+                <span className="font-mono text-foreground">
+                  {formatNumber(openrouter.outputTokens)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4 text-[11px]">
+                <span className="text-muted-foreground">Total tokens</span>
+                <span className="font-mono text-foreground">
+                  {formatNumber(openrouter.tokens)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4 text-[11px] pt-0.5 border-t border-border/40 mt-0.5">
+                <span className="text-muted-foreground">Spend</span>
+                <span className="font-mono text-foreground">
+                  {formatUsd(openrouter.costUsd)}
+                </span>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      )}
       {githubStats?.available && (
         <GithubCommitsRow
           today={githubStats.stats.today}

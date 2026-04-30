@@ -309,6 +309,46 @@ export const subChatGeminiModelIdAtomFamily = atomFamily((subChatId: string) =>
   ),
 )
 
+// ============================================
+// OPENROUTER MODEL SELECTION
+// ============================================
+
+export const lastSelectedOpenRouterModelIdAtom = atomWithStorage<string>(
+  "agents:lastSelectedOpenRouterModelId",
+  "",
+  undefined,
+  { getOnInit: true },
+)
+
+const subChatOpenRouterModelIdsStorageAtom = atomWithStorage<
+  Record<string, string>
+>("agents:subChatOpenRouterModelIds", {}, undefined, { getOnInit: true })
+
+export const subChatOpenRouterModelIdAtomFamily = atomFamily(
+  (subChatId: string) =>
+    atom(
+      (get) => {
+        if (!subChatId) return get(lastSelectedOpenRouterModelIdAtom)
+        return (
+          get(subChatOpenRouterModelIdsStorageAtom)[subChatId] ??
+          get(lastSelectedOpenRouterModelIdAtom)
+        )
+      },
+      (get, set, newModelId: string) => {
+        if (!subChatId) {
+          set(lastSelectedOpenRouterModelIdAtom, newModelId)
+          return
+        }
+        const current = get(subChatOpenRouterModelIdsStorageAtom)
+        if (current[subChatId] === newModelId) return
+        set(subChatOpenRouterModelIdsStorageAtom, {
+          ...current,
+          [subChatId]: newModelId,
+        })
+      },
+    ),
+)
+
 // Storage for per-subChat Claude model selection.
 // Falls back to lastSelectedModelIdAtom when sub-chat has no explicit selection yet.
 const subChatModelIdsStorageAtom = atomWithStorage<Record<string, string>>(

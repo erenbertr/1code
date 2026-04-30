@@ -8,6 +8,7 @@ import { anthropicAccountsRouter } from "./anthropic-accounts"
 import { ollamaRouter } from "./ollama"
 import { codexRouter } from "./codex"
 import { geminiRouter } from "./gemini"
+import { openrouterRouter } from "./openrouter"
 import { githubRouter } from "./github"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
@@ -39,6 +40,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     ollama: ollamaRouter,
     codex: codexRouter,
     gemini: geminiRouter,
+    openrouter: openrouterRouter,
     github: githubRouter,
     terminal: terminalRouter,
     external: externalRouter,

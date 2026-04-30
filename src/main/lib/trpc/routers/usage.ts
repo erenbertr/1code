@@ -12,6 +12,15 @@ import {
   fetchGeminiPlanUsage,
   type GeminiPlanUsage,
 } from "../../gemini-plan-usage"
+import {
+  readOpenRouterToday,
+  type OpenRouterTodayUsage,
+} from "../../openrouter-usage"
+import { loadOpenRouterApiKey } from "../../openrouter-auth-store"
+import {
+  fetchOpenRouterPlanUsage,
+  type OpenRouterPlanUsage,
+} from "../../openrouter-plan-usage"
 import { publicProcedure, router } from "../index"
 
 export type ClaudeTodayUsage = {
@@ -32,6 +41,7 @@ export type UsageTodayResult = {
   claude: ClaudeTodayUsage | null
   codex: CodexTodayUsage | null
   gemini: GeminiTodayUsage | null
+  openrouter: OpenRouterTodayUsage | null
   date: string
 }
 
@@ -576,18 +586,58 @@ async function readGeminiPlanUsage(): Promise<GeminiPlanUsageResult> {
   }
 }
 
+export type OpenRouterPlanUsageResult =
+  | { available: true; usage: OpenRouterPlanUsage; fetchedAt: string }
+  | {
+      available: false
+      reason: "no_credentials" | "unauthorized" | "error"
+      message?: string
+      fetchedAt: string
+    }
+
+async function readOpenRouterPlan(): Promise<OpenRouterPlanUsageResult> {
+  const fetchedAt = new Date().toISOString()
+  const result = await fetchOpenRouterPlanUsage()
+  if (result.ok) {
+    return { available: true, usage: result.usage, fetchedAt }
+  }
+  return {
+    available: false,
+    reason: result.reason,
+    message: result.message,
+    fetchedAt,
+  }
+}
+
 export const usageRouter = router({
   today: publicProcedure.query(async (): Promise<UsageTodayResult> => {
-    const [claude, codex, gemini] = await Promise.all([
+    const [claude, codex, gemini, openrouter] = await Promise.all([
       readClaudeToday(),
       readCodexToday(),
       readGeminiToday(),
+      readOpenRouterToday(),
     ])
     let geminiResolved = gemini
     if (geminiResolved === null && loadGeminiApiKey()) {
       geminiResolved = { tokens: 0, inputTokens: 0, outputTokens: 0, sessions: 0 }
     }
-    return { claude, codex, gemini: geminiResolved, date: todayLocalISO() }
+    let openRouterResolved = openrouter
+    if (openRouterResolved === null && loadOpenRouterApiKey()) {
+      openRouterResolved = {
+        tokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        sessions: 0,
+        costUsd: 0,
+      }
+    }
+    return {
+      claude,
+      codex,
+      gemini: geminiResolved,
+      openrouter: openRouterResolved,
+      date: todayLocalISO(),
+    }
   }),
   plan: publicProcedure.query(async (): Promise<ClaudePlanUsageResult> => {
     const result = await fetchClaudeOAuthUsage()
@@ -607,5 +657,8 @@ export const usageRouter = router({
   ),
   geminiPlan: publicProcedure.query(
     async (): Promise<GeminiPlanUsageResult> => readGeminiPlanUsage(),
+  ),
+  openRouterPlan: publicProcedure.query(
+    async (): Promise<OpenRouterPlanUsageResult> => readOpenRouterPlan(),
   ),
 })

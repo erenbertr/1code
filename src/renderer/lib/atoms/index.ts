@@ -812,6 +812,18 @@ export const hiddenModelsAtom = atomWithStorage<string[]>(
 )
 
 // ============================================
+// OPENROUTER (pinned models)
+// ============================================
+// OpenRouter exposes 200+ models; the user pins which ones surface in the picker.
+// Pinned set is persisted; OR catalog itself is fetched fresh from main process.
+export const pinnedOpenRouterModelsAtom = atomWithStorage<string[]>(
+  "preferences:openrouter-pinned-v1",
+  [],
+  undefined,
+  { getOnInit: true },
+)
+
+// ============================================
 // SESSION INFO ATOMS (MCP, Plugins, Tools)
 // ============================================
 

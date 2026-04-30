@@ -50,6 +50,16 @@ export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   return thinking.charAt(0).toUpperCase() + thinking.slice(1)
 }
 
+export const OPENROUTER_PROVIDER = "openrouter" as const
+
+export function isOpenRouterModelId(modelId: string): boolean {
+  // OpenRouter model IDs follow `provider/model-name`, e.g. `anthropic/claude-3.5-sonnet`,
+  // `openai/gpt-4o`, `meta-llama/llama-3.3-70b-instruct`. The slash is the
+  // canonical marker that distinguishes them from the flat IDs used by Claude,
+  // Codex, and Gemini in this app.
+  return modelId.includes("/")
+}
+
 export const GEMINI_MODELS = [
   { id: "auto-gemini-3", name: "Gemini 3", version: "Auto" },
   { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", version: "Preview" },

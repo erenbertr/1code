@@ -165,6 +165,8 @@ import {
   getSubChatDraftFull
 } from "../lib/drafts"
 import { GeminiChatTransport } from "../lib/gemini-chat-transport"
+import { OpenRouterChatTransport } from "../lib/openrouter-chat-transport"
+import { isOpenRouterModelId } from "../lib/models"
 import { IPCChatTransport } from "../lib/ipc-chat-transport"
 import { isAssistantMessageQuestion } from "../lib/is-question"
 import {
@@ -290,13 +292,13 @@ const ChatViewInner = memo(function ChatViewInner({
   chat: Chat<any>
   subChatId: string
   parentChatId: string
-  provider?: "claude-code" | "codex" | "gemini"
+  provider?: "claude-code" | "codex" | "gemini" | "openrouter"
   isFirstSubChat: boolean
   onAutoRename: (userMessage: string, subChatId: string) => void
   onCreateNewSubChat?: () => void
   onProviderChange?: (
     subChatId: string,
-    provider: "claude-code" | "codex" | "gemini",
+    provider: "claude-code" | "codex" | "gemini" | "openrouter",
   ) => void
   refreshDiff?: () => void
   teamId?: string
@@ -2911,7 +2913,7 @@ const ChatViewInner = memo(function ChatViewInner({
   const shouldShowStackedCards =
     !displayQuestions && (queue.length > 0 || shouldShowStatusCard)
   const handleInputProviderChange = useCallback(
-    (nextProvider: "claude-code" | "codex" | "gemini") => {
+    (nextProvider: "claude-code" | "codex" | "gemini" | "openrouter") => {
       onProviderChange?.(subChatId, nextProvider)
     },
     [onProviderChange, subChatId],
@@ -2920,7 +2922,7 @@ const ChatViewInner = memo(function ChatViewInner({
   // Continue conversation with a different provider - creates new sub-chat with history attachment
   const isContinuingRef = useRef(false)
   const handleContinueWithProvider = useCallback(
-    async (targetProvider: "claude-code" | "codex" | "gemini") => {
+    async (targetProvider: "claude-code" | "codex" | "gemini" | "openrouter") => {
       if (isStreaming || isContinuingRef.current) return
       if (!messages || messages.length === 0) return
       isContinuingRef.current = true
@@ -3701,7 +3703,7 @@ export function ChatView({
   const [
     subChatProviderOverrides,
     setSubChatProviderOverrides,
-  ] = useState<Record<string, "claude-code" | "codex" | "gemini">>({})
+  ] = useState<Record<string, "claude-code" | "codex" | "gemini" | "openrouter">>({})
 
   useEffect(() => {
     setSubChatProviderOverrides({})
@@ -4777,7 +4779,7 @@ Make sure to preserve all functionality from both branches when resolving confli
   }, [agentSubChats, activeSubChatIdForPlan, setCurrentPlanPath])
 
   const inferProviderFromMessages = useCallback(
-    (subChatId?: string): "claude-code" | "codex" | "gemini" => {
+    (subChatId?: string): "claude-code" | "codex" | "gemini" | "openrouter" => {
       if (!subChatId) return "claude-code"
 
       const override = subChatProviderOverrides[subChatId]
@@ -4804,6 +4806,9 @@ Make sure to preserve all functionality from both branches when resolving confli
         const model = (message as any)?.metadata?.model
         if (typeof model !== "string") continue
         const normalizedModel = model.toLowerCase()
+        if (isOpenRouterModelId(model)) {
+          return "openrouter"
+        }
         if (
           normalizedModel.startsWith("gemini") ||
           normalizedModel.startsWith("auto-gemini")
@@ -4982,12 +4987,14 @@ Make sure to preserve all functionality from both branches when resolving confli
         if (!overrideProvider) return existing
 
         const existingTransport = (existing as any)?.transport
-        const existingProvider: "claude-code" | "codex" | "gemini" =
+        const existingProvider: "claude-code" | "codex" | "gemini" | "openrouter" =
           existingTransport instanceof ACPChatTransport
             ? "codex"
             : existingTransport instanceof GeminiChatTransport
               ? "gemini"
-              : "claude-code"
+              : existingTransport instanceof OpenRouterChatTransport
+                ? "openrouter"
+                : "claude-code"
         if (existingProvider === overrideProvider) return existing
 
         const subChatForOverride = agentSubChats.find((sc) => sc.id === subChatId)
@@ -5033,7 +5040,7 @@ Make sure to preserve all functionality from both branches when resolving confli
 
       const chatProvider = inferProviderFromMessages(subChatId)
 
-      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | null = null
+      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | OpenRouterChatTransport | null = null
 
       if (isRemoteChat && chatSandboxUrl) {
         // Remote sandbox chat: use HTTP SSE transport
@@ -5053,6 +5060,11 @@ Make sure to preserve all functionality from both branches when resolving confli
           chatId,
           subChatId,
           ...(worktreePath ? { cwd: worktreePath } : {}),
+        })
+      } else if (chatProvider === "openrouter") {
+        transport = new OpenRouterChatTransport({
+          chatId,
+          subChatId,
         })
       } else if (worktreePath) {
         if (chatProvider === "codex") {
@@ -5212,7 +5224,7 @@ Make sure to preserve all functionality from both branches when resolving confli
   )
 
   const handleProviderChange = useCallback(
-    (subChatId: string, nextProvider: "claude-code" | "codex" | "gemini") => {
+    (subChatId: string, nextProvider: "claude-code" | "codex" | "gemini" | "openrouter") => {
       // Provider switch is only allowed for brand new sub-chats.
       const activeChat = agentChatStore.get(subChatId) as any
       let messageCount = Array.isArray(activeChat?.messages)
@@ -5340,7 +5352,7 @@ Make sure to preserve all functionality from both branches when resolving confli
     const isNewSubChatRemote = !!(agentChat as any)?.isRemote || !!newSubChatSandboxId
 
     const chatProvider = newSubChatProvider
-    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | null = null
+    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | OpenRouterChatTransport | null = null
 
     if (isNewSubChatRemote && newSubChatSandboxUrl) {
       // Remote sandbox chat: use HTTP SSE transport
@@ -5359,6 +5371,11 @@ Make sure to preserve all functionality from both branches when resolving confli
         chatId,
         subChatId: newId,
         ...(worktreePath ? { cwd: worktreePath } : {}),
+      })
+    } else if (chatProvider === "openrouter") {
+      newSubChatTransport = new OpenRouterChatTransport({
+        chatId,
+        subChatId: newId,
       })
     } else if (worktreePath) {
       if (chatProvider === "codex") {
