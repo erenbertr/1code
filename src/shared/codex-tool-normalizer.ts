@@ -11,6 +11,14 @@ const CODEX_VERB_TO_TOOL_TYPE: Record<string, string> = {
   Write: "Write",
   Thought: "Thinking",
   Fetch: "WebFetch",
+  // Gemini/Codex CLI tool names
+  replace: "Edit",
+  write_file: "Write",
+  run_shell_command: "Bash",
+  read_file: "Read",
+  grep_search: "Grep",
+  glob: "Glob",
+  update_topic: "Thinking",
 }
 
 type CodexToolDescriptor = {
@@ -228,6 +236,13 @@ function normalizeCodexToolInput(
     rawInput.command !== undefined
   ) {
     normalizedInput.command = rawInput.command
+  }
+
+  if (descriptor.canonicalToolName === "Thinking") {
+    if (!normalizedInput.text) {
+      normalizedInput.text =
+        normalizedInput.summary || normalizedInput.title || descriptor.detail
+    }
   }
 
   if (descriptor.canonicalToolName === "Read") {

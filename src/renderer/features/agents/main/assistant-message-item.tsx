@@ -69,6 +69,14 @@ const ACP_VERB_TO_TOOL_TYPE: Record<string, string> = {
   Write: "Write",
   Thought: "Thinking",
   Fetch: "WebFetch",
+  // Gemini/Codex CLI tool names
+  replace: "Edit",
+  write_file: "Write",
+  run_shell_command: "Bash",
+  read_file: "Read",
+  grep_search: "Grep",
+  glob: "Glob",
+  update_topic: "Thinking",
 }
 
 // Check if a part.type looks like an ACP title-based type (e.g. "tool-Read README.md")
@@ -149,6 +157,11 @@ function normalizeAcpParts(parts: any[]): any[] {
 
     // Enrich input with fields that the tool registry expects for display
     const enrichedInput: Record<string, any> = { ...args, _acpTitle: title, _acpDetail: detail }
+
+    if (canonicalType === "Thinking" && !enrichedInput.text) {
+      enrichedInput.text = enrichedInput.summary || enrichedInput.title || detail
+    }
+
     if (canonicalType === "Read" && !enrichedInput.file_path && detail) {
       enrichedInput.file_path = detail
     }
