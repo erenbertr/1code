@@ -197,6 +197,12 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     },
   )
 
+  const { data: codexPlan } = trpc.usage.codexPlan.useQuery(undefined, {
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  })
+
   if (loadingToday && !today && loadingPlan && !plan) {
     return (
       <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[10px] text-muted-foreground/40 select-none">
@@ -211,6 +217,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
   const claude = today?.claude ?? null
   const codex = today?.codex ?? null
   const planUsage = plan?.available ? plan.usage : null
+  const codexPlanUsage = codexPlan?.available ? codexPlan.usage : null
 
   return (
     <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[11px] select-none">
@@ -260,6 +267,32 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
                 tooltipDescription={`${planUsage.extraUsage.usedCredits ?? 0} / ${planUsage.extraUsage.monthlyLimit ?? 0} ${planUsage.extraUsage.currency ?? ""}`.trim()}
               />
             )}
+        </>
+      )}
+
+      {codexPlanUsage && (codexPlanUsage.primary || codexPlanUsage.secondary) && (
+        <>
+          {!planUsage && (
+            <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-0.5">
+              Plan limits
+            </div>
+          )}
+          {codexPlanUsage.primary && (
+            <PlanRow
+              label="Codex · current session"
+              utilization={codexPlanUsage.primary.utilization}
+              resetsAt={codexPlanUsage.primary.resetsAt}
+              tooltipDescription="Codex 5-hour rolling window."
+            />
+          )}
+          {codexPlanUsage.secondary && (
+            <PlanRow
+              label="Codex · weekly"
+              utilization={codexPlanUsage.secondary.utilization}
+              resetsAt={codexPlanUsage.secondary.resetsAt}
+              tooltipDescription="Codex 7-day rolling window."
+            />
+          )}
         </>
       )}
 

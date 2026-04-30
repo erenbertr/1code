@@ -330,6 +330,222 @@ export type ClaudePlanUsageResult =
       fetchedAt: string
     }
 
+export type CodexUsageWindow = {
+  utilization: number | null
+  resetsAt: string | null
+  windowMinutes: number | null
+}
+
+export type CodexPlanUsage = {
+  primary: CodexUsageWindow | null
+  secondary: CodexUsageWindow | null
+  planType: string | null
+  hasCredits: boolean | null
+  source: { sessionFile: string; observedAt: string } | null
+}
+
+export type CodexPlanUsageResult =
+  | { available: true; usage: CodexPlanUsage; fetchedAt: string }
+  | {
+      available: false
+      reason: "no_sessions" | "error"
+      message?: string
+      fetchedAt: string
+    }
+
+type RawCodexRateLimits = {
+  primary: CodexUsageWindow | null
+  secondary: CodexUsageWindow | null
+  planType: string | null
+  hasCredits: boolean | null
+  observedAt: string
+}
+
+function parseCodexWindow(value: unknown): CodexUsageWindow | null {
+  if (typeof value !== "object" || value === null) return null
+  const v = value as Record<string, unknown>
+  const utilization = pickNumber(v.used_percent)
+  const windowMinutes = pickNumber(v.window_minutes)
+  const resetsRaw = v.resets_at
+  let resetsAt: string | null = null
+  if (typeof resetsRaw === "number" && Number.isFinite(resetsRaw)) {
+    resetsAt = new Date(resetsRaw * 1000).toISOString()
+  } else if (typeof resetsRaw === "string" && resetsRaw.length > 0) {
+    resetsAt = resetsRaw
+  }
+  if (utilization === null && resetsAt === null && windowMinutes === null) {
+    return null
+  }
+  return { utilization, resetsAt, windowMinutes }
+}
+
+async function readLatestCodexRateLimits(
+  filePath: string,
+): Promise<RawCodexRateLimits | null> {
+  let content: string
+  try {
+    content = await readFile(filePath, "utf8")
+  } catch {
+    return null
+  }
+
+  const lines = content.split("\n")
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]?.trim()
+    if (!line) continue
+
+    let event: unknown
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+
+    if (
+      typeof event !== "object" ||
+      event === null ||
+      (event as { type?: unknown }).type !== "event_msg"
+    ) {
+      continue
+    }
+
+    const payload = (event as { payload?: unknown }).payload
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      (payload as { type?: unknown }).type !== "token_count"
+    ) {
+      continue
+    }
+
+    const rateLimits = (payload as { rate_limits?: unknown }).rate_limits
+    if (typeof rateLimits !== "object" || rateLimits === null) continue
+
+    const r = rateLimits as Record<string, unknown>
+    const primary = parseCodexWindow(r.primary)
+    const secondary = parseCodexWindow(r.secondary)
+    if (!primary && !secondary) continue
+
+    const credits =
+      typeof r.credits === "object" && r.credits !== null
+        ? (r.credits as Record<string, unknown>)
+        : null
+    const hasCredits =
+      typeof credits?.has_credits === "boolean" ? credits.has_credits : null
+
+    const planType =
+      typeof r.plan_type === "string" && r.plan_type.length > 0
+        ? r.plan_type
+        : null
+
+    const tsRaw = (event as { timestamp?: unknown }).timestamp
+    const observedAt =
+      typeof tsRaw === "string" ? tsRaw : new Date().toISOString()
+
+    return { primary, secondary, planType, hasCredits, observedAt }
+  }
+
+  return null
+}
+
+async function findMostRecentCodexSession(): Promise<string | null> {
+  const sessionsRoot = join(homedir(), ".codex", "sessions")
+  if (!existsSync(sessionsRoot)) return null
+
+  let years: string[]
+  try {
+    years = await readdir(sessionsRoot)
+  } catch {
+    return null
+  }
+
+  let bestPath: string | null = null
+  let bestMtime = 0
+
+  for (const year of years) {
+    if (!/^\d{4}$/.test(year)) continue
+    const yearDir = join(sessionsRoot, year)
+    let months: string[]
+    try {
+      months = await readdir(yearDir)
+    } catch {
+      continue
+    }
+    for (const month of months) {
+      if (!/^\d{2}$/.test(month)) continue
+      const monthDir = join(yearDir, month)
+      let days: string[]
+      try {
+        days = await readdir(monthDir)
+      } catch {
+        continue
+      }
+      for (const day of days) {
+        if (!/^\d{2}$/.test(day)) continue
+        const dayDir = join(monthDir, day)
+        let entries: string[]
+        try {
+          entries = await readdir(dayDir)
+        } catch {
+          continue
+        }
+        for (const name of entries) {
+          if (!name.endsWith(".jsonl")) continue
+          const filePath = join(dayDir, name)
+          try {
+            const s = await stat(filePath)
+            const mtime = s.mtime.getTime()
+            if (mtime > bestMtime) {
+              bestMtime = mtime
+              bestPath = filePath
+            }
+          } catch {
+            continue
+          }
+        }
+      }
+    }
+  }
+
+  return bestPath
+}
+
+async function readCodexPlanUsage(): Promise<CodexPlanUsageResult> {
+  const fetchedAt = new Date().toISOString()
+  const sessionsRoot = join(homedir(), ".codex", "sessions")
+  if (!existsSync(sessionsRoot)) {
+    return { available: false, reason: "no_sessions", fetchedAt }
+  }
+
+  let sessionFile: string | null
+  try {
+    sessionFile = await findMostRecentCodexSession()
+  } catch {
+    return { available: false, reason: "error", fetchedAt }
+  }
+
+  if (!sessionFile) {
+    return { available: false, reason: "no_sessions", fetchedAt }
+  }
+
+  const limits = await readLatestCodexRateLimits(sessionFile)
+  if (!limits) {
+    return { available: false, reason: "no_sessions", fetchedAt }
+  }
+
+  return {
+    available: true,
+    usage: {
+      primary: limits.primary,
+      secondary: limits.secondary,
+      planType: limits.planType,
+      hasCredits: limits.hasCredits,
+      source: { sessionFile, observedAt: limits.observedAt },
+    },
+    fetchedAt,
+  }
+}
+
 export const usageRouter = router({
   today: publicProcedure.query(async (): Promise<UsageTodayResult> => {
     const [claude, codex] = await Promise.all([
@@ -351,4 +567,7 @@ export const usageRouter = router({
       fetchedAt,
     }
   }),
+  codexPlan: publicProcedure.query(
+    async (): Promise<CodexPlanUsageResult> => readCodexPlanUsage(),
+  ),
 })
