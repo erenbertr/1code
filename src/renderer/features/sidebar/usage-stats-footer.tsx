@@ -121,6 +121,7 @@ interface QuotaCell {
 
 function QuotaChip({ cell }: { cell: QuotaCell }) {
   const resetIn = formatResetIn(cell.resetsAt)
+  const isHigh = cell.utilization !== null && cell.utilization >= 80
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
@@ -133,7 +134,12 @@ function QuotaChip({ cell }: { cell: QuotaCell }) {
           <span className="text-[9px] text-muted-foreground/90 truncate">
             {cell.label}
           </span>
-          <span className="font-mono text-[9px] tabular-nums text-foreground/80">
+          <span
+            className={cn(
+              "font-mono text-[9px] tabular-nums",
+              isHigh ? "text-orange-400" : "text-foreground/80",
+            )}
+          >
             {formatPercent(cell.utilization)}
           </span>
         </div>
