@@ -12,13 +12,12 @@ import {
   selectedAgentChatIdAtom,
   selectedChatIsRemoteAtom,
   previousAgentChatIdAtom,
-  selectedDraftIdAtom,
-  showNewChatFormAtom,
   agentsMobileViewModeAtom,
   agentsPreviewSidebarOpenAtom,
   agentsSidebarOpenAtom,
   desktopViewAtom,
   newChatFormResetCounterAtom,
+  selectedProjectAtom,
 } from "../atoms"
 import {
   selectedTeamIdAtom,
@@ -31,12 +30,11 @@ import {
   subChatsQuickSwitchOpenAtom,
   subChatsQuickSwitchSelectedIndexAtom,
   ctrlTabTargetAtom,
-  betaKanbanEnabledAtom,
   betaAutomationsEnabledAtom,
   chatSourceModeAtom,
 } from "../../../lib/atoms"
 import { NewChatForm } from "../main/new-chat-form"
-import { KanbanView } from "../../kanban"
+import { AllProjectsPage } from "../../projects/all-projects-page"
 import { AutomationsView, AutomationsDetailView, InboxView } from "../../automations"
 import { ChatView } from "../main/active-chat"
 import { api } from "../../../lib/api-bridge"
@@ -68,13 +66,11 @@ const useIsAdmin = () => false
 export function AgentsContent() {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom)
   const desktopView = useAtomValue(desktopViewAtom)
+  const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatIsRemote = useSetAtom(selectedChatIsRemoteAtom)
   const setChatSourceMode = useSetAtom(chatSourceModeAtom)
   const chatSourceMode = useAtomValue(chatSourceModeAtom)
-  const selectedDraftId = useAtomValue(selectedDraftIdAtom)
-  const showNewChatForm = useAtomValue(showNewChatFormAtom)
   const newChatResetCounter = useAtomValue(newChatFormResetCounterAtom)
-  const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const [betaAutomationsEnabled, setBetaAutomationsEnabled] = useAtom(betaAutomationsEnabledAtom)
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)
   const setBillingMethod = useSetAtom(billingMethodAtom)
@@ -926,8 +922,7 @@ export function AgentsContent() {
                 : betaAutomationsEnabled && desktopView === "automations-detail" ? "automations-detail"
                 : betaAutomationsEnabled && desktopView === "inbox" ? "inbox"
                 : selectedChatId ? `chat-${chatSourceMode}-${selectedChatId}`
-                : selectedDraftId || showNewChatForm ? `new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`
-                : betaKanbanEnabled ? "kanban"
+                : !selectedProject ? "all-projects"
                 : `new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`
               }
               initial={{ opacity: 0 }}
@@ -955,12 +950,10 @@ export function AgentsContent() {
                     selectedTeamImageUrl={selectedTeam?.image_url}
                   />
                 </div>
-              ) : selectedDraftId || showNewChatForm ? (
+              ) : !selectedProject ? (
                 <div className="h-full flex flex-col relative overflow-hidden">
-                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`} />
+                  <AllProjectsPage />
                 </div>
-              ) : betaKanbanEnabled ? (
-                <KanbanView />
               ) : (
                 <div className="h-full flex flex-col relative overflow-hidden">
                   <NewChatForm key={`new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`} />

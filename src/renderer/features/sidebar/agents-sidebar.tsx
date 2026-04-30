@@ -23,12 +23,11 @@ import {
   isDesktopAtom,
   isFullscreenAtom,
   showWorkspaceIconAtom,
-  betaKanbanEnabledAtom,
   betaAutomationsEnabledAtom,
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
-import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Check } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconTerminal2, IconCode } from "@tabler/icons-react"
+import { ChevronDown, MoreHorizontal, ArrowUpRight, Check } from "lucide-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconX, IconSparkles, IconEdit, IconFolderPlus, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconTerminal2, IconCode } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -62,7 +61,6 @@ import {
 } from "../../components/ui/context-menu"
 import {
   IconDoubleChevronLeft,
-  SettingsIcon,
   ProfileIcon,
   PublisherStudioIcon,
   SearchIcon,
@@ -1188,47 +1186,6 @@ const ArchiveButton = memo(forwardRef<HTMLButtonElement, React.ButtonHTMLAttribu
   }
 ))
 
-// Isolated Kanban Button - clears selection to show Kanban view
-const KanbanButton = memo(function KanbanButton() {
-  const kanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
-  const setSelectedDraftId = useSetAtom(selectedDraftIdAtom)
-  const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
-  const setDesktopView = useSetAtom(desktopViewAtom)
-
-  // Resolved hotkey for tooltip (respects custom bindings)
-  const openKanbanHotkey = useResolvedHotkeyDisplay("open-kanban")
-
-  const handleClick = useCallback(() => {
-    // Clear selected chat, draft, and new form state to show Kanban view
-    setSelectedChatId(null)
-    setSelectedDraftId(null)
-    setShowNewChatForm(false)
-    setDesktopView(null) // Clear automations/inbox view
-  }, [setSelectedChatId, setSelectedDraftId, setShowNewChatForm, setDesktopView])
-
-  // Hide button if feature is disabled
-  if (!kanbanEnabled) return null
-
-  return (
-    <Tooltip delayDuration={500}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={handleClick}
-          className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-        >
-          <Columns3 className="h-[18px] w-[18px]" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        Kanban View
-        {openKanbanHotkey && <Kbd>{openKanbanHotkey}</Kbd>}
-      </TooltipContent>
-    </Tooltip>
-  )
-})
-
 // Custom SVG icons matching web's icons.tsx
 function SidebarInboxIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -1510,7 +1467,6 @@ export function AgentsSidebar({
 
   // Resolved hotkeys for tooltips
   const { primary: newWorkspaceHotkey, alt: newWorkspaceAltHotkey } = useResolvedHotkeyDisplayWithAlt("new-workspace")
-  const settingsHotkey = useResolvedHotkeyDisplay("open-settings")
 
   // Rename dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -2173,8 +2129,15 @@ export function AgentsSidebar({
       }
     }
 
+    // When a project is selected via the projects rail, only show that project's group.
+    // The rail is the primary project nav; the secondary nav scopes to the picked project.
+    if (selectedProject?.id) {
+      const scopedKey = `proj:${selectedProject.id}`
+      return groups.filter((g) => g.key === scopedKey)
+    }
+
     return groups
-  }, [filteredChats, projectsMap, projects, drafts])
+  }, [filteredChats, projectsMap, projects, drafts, selectedProject?.id])
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2850,7 +2813,7 @@ export function AgentsSidebar({
                 <ContextMenu>
                   <ContextMenuTrigger asChild>
                     <div
-                      className="group/project-header flex items-center mt-4 first:mt-1 cursor-pointer"
+                      className="group/project-header flex items-center gap-1 mt-4 first:mt-1 cursor-pointer"
                       onClick={() => setCollapsedGroups(prev => {
                         const next = new Set(prev)
                         if (next.has(group.key)) next.delete(group.key)
@@ -2858,7 +2821,7 @@ export function AgentsSidebar({
                         return next
                       })}
                     >
-                      <span className="text-[12px] text-muted-foreground/35 font-normal truncate flex-1 py-1">
+                      <span className="text-[14px] text-foreground/70 font-medium truncate flex-1 py-1">
                         {group.label}
                       </span>
                       {group.projectId && (
@@ -2878,10 +2841,10 @@ export function AgentsSidebar({
                                 }
                               })
                             }}
-                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/55 hover:text-foreground/90 opacity-80 group-hover/project-header:opacity-100 transition-opacity duration-150"
                             aria-label="Reveal in file manager"
                           >
-                            <IconFolderOpen size={12} stroke={2} />
+                            <IconFolderOpen size={15} stroke={2.2} />
                           </button>
                           <button
                             type="button"
@@ -2898,10 +2861,10 @@ export function AgentsSidebar({
                                 }
                               })
                             }}
-                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/55 hover:text-foreground/90 opacity-80 group-hover/project-header:opacity-100 transition-opacity duration-150"
                             aria-label="Open in VS Code"
                           >
-                            <IconCode size={12} stroke={2} />
+                            <IconCode size={15} stroke={2.2} />
                           </button>
                           <button
                             type="button"
@@ -2918,10 +2881,10 @@ export function AgentsSidebar({
                                 }
                               })
                             }}
-                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/55 hover:text-foreground/90 opacity-80 group-hover/project-header:opacity-100 transition-opacity duration-150"
                             aria-label="Open terminal"
                           >
-                            <IconTerminal2 size={12} stroke={2} />
+                            <IconTerminal2 size={15} stroke={2.2} />
                           </button>
                           <button
                             type="button"
@@ -2930,10 +2893,10 @@ export function AgentsSidebar({
                               setSelectedProject(projects?.find(p => p.id === group.projectId) as any ?? null)
                               handleNewAgent()
                             }}
-                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/55 hover:text-foreground/90 opacity-80 group-hover/project-header:opacity-100 transition-opacity duration-150"
                             aria-label="New agent"
                           >
-                            <IconPlus size={12} stroke={2} />
+                            <IconPlus size={15} stroke={2.2} />
                           </button>
                         </>
                       )}
@@ -3179,7 +3142,7 @@ export function AgentsSidebar({
                             return (
                               <div key={bucket.key} className="mt-1 first:mt-0">
                                 <div className="group/bucket-header flex items-center px-3 pt-1.5 pb-0.5 select-none">
-                                  <span className="flex-1 text-[10px] uppercase tracking-wider text-muted-foreground/30 font-medium">
+                                  <span className="flex-1 text-[12px] uppercase tracking-wider text-muted-foreground/50 font-semibold">
                                     {bucket.label}
                                   </span>
                                   {canArchiveAll && (
@@ -3206,11 +3169,11 @@ export function AgentsSidebar({
                                         })
                                       }}
                                       disabled={archiveChatsBatchMutation.isPending}
-                                      className="flex-shrink-0 h-4 w-4 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/bucket-header:opacity-100 transition-opacity duration-150 disabled:opacity-30"
+                                      className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground/85 opacity-0 group-hover/bucket-header:opacity-100 transition-opacity duration-150 disabled:opacity-30"
                                       aria-label={`Archive all ${bucket.label.toLowerCase()}`}
                                       title={`Archive all ${bucket.label.toLowerCase()}`}
                                     >
-                                      <IconArchive size={11} stroke={1.8} />
+                                      <IconArchive size={13} stroke={2} />
                                     </button>
                                   )}
                                 </div>
@@ -3248,25 +3211,6 @@ export function AgentsSidebar({
 
       {/* Today's usage stats */}
       <UsageStatsFooter />
-
-      {/* Footer — Kanban + Settings */}
-      <div className="px-3 py-2.5 flex-shrink-0 flex items-center gap-1">
-        <KanbanButton />
-        <Tooltip delayDuration={500}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsDialogOpen(true)
-              }}
-              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-foreground/[0.05] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-            >
-              <IconSettings size={18} stroke={1.5} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Settings</TooltipContent>
-        </Tooltip>
-      </div>
     </div>
   )
 

@@ -18,7 +18,6 @@ import {
   isFullscreenAtom,
   anthropicOnboardingCompletedAtom,
   customHotkeysAtom,
-  betaKanbanEnabledAtom,
 } from "../../lib/atoms"
 import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, fileSearchDialogOpenAtom, requestNewChatFormResetAtom } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
@@ -28,6 +27,7 @@ import { CodexLoginModal } from "../../components/dialogs/codex-login-modal"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
 import { AgentsSidebar } from "../sidebar/agents-sidebar"
+import { ProjectsRail } from "../sidebar/projects-rail"
 import { AgentsContent } from "../agents/ui/agents-content"
 import { UpdateBanner } from "../../components/update-banner"
 import { WindowsTitleBar } from "../../components/windows-title-bar"
@@ -106,7 +106,6 @@ export function AgentsLayout() {
   const setSelectedDraftId = useSetAtom(selectedDraftIdAtom)
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
   const requestNewChatFormReset = useSetAtom(requestNewChatFormResetAtom)
-  const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const setAnthropicOnboardingCompleted = useSetAtom(
     anthropicOnboardingCompletedAtom
@@ -290,7 +289,6 @@ export function AgentsLayout() {
     toggleChatSearch,
     selectedChatId,
     customHotkeysConfig,
-    betaKanbanEnabled,
   })
 
   const handleCloseSidebar = useCallback(() => {
@@ -330,7 +328,10 @@ export function AgentsLayout() {
         )}
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left Sidebar - switches between chat list and settings nav */}
+          {/* Projects rail — primary nav (projects only). Hidden in settings + mobile. */}
+          {!isMobile && !isSettingsView && <ProjectsRail />}
+
+          {/* Secondary nav — chats grouped per project, or settings nav */}
           <ResizableSidebar
           isOpen={!isMobile && sidebarOpen}
           onClose={handleCloseSidebar}

@@ -438,15 +438,6 @@ export const betaGitFeaturesEnabledAtom = atomWithStorage<boolean>(
   { getOnInit: true },
 )
 
-// Kanban board view
-// When enabled, shows Kanban button in sidebar to view workspaces as a board
-export const betaKanbanEnabledAtom = atomWithStorage<boolean>(
-  "preferences:beta-kanban-enabled",
-  true, // Default ON — graduated from beta
-  undefined,
-  { getOnInit: true },
-)
-
 // Beta: Enable Automations & Inbox
 // When enabled, shows Automations and Inbox navigation in sidebar
 export const betaAutomationsEnabledAtom = atomWithStorage<boolean>(

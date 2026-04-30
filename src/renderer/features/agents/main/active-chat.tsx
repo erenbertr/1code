@@ -5046,10 +5046,10 @@ Make sure to preserve all functionality from both branches when resolving confli
           model: modelString,
         })
       } else if (chatProvider === "gemini") {
-        // Gemini runs as a stateless API call — no worktree/cwd needed
         transport = new GeminiChatTransport({
           chatId,
           subChatId,
+          ...(worktreePath ? { cwd: worktreePath } : {}),
         })
       } else if (worktreePath) {
         if (chatProvider === "codex") {
@@ -5355,6 +5355,7 @@ Make sure to preserve all functionality from both branches when resolving confli
       newSubChatTransport = new GeminiChatTransport({
         chatId,
         subChatId: newId,
+        ...(worktreePath ? { cwd: worktreePath } : {}),
       })
     } else if (worktreePath) {
       if (chatProvider === "codex") {
