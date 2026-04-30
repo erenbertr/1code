@@ -46,13 +46,22 @@ const ACCENT_COLORS = [
 ] as const
 
 // --- Detail Panel ---
-function ProjectDetail({ projectId }: { projectId: string }) {
+function ProjectDetail({
+  projectId,
+  onDeleted,
+}: {
+  projectId: string
+  onDeleted: () => void
+}) {
   // Get config for selected project
   const { data: configData, refetch: refetchConfig } =
     trpc.worktreeConfig.get.useQuery(
       { projectId },
       { enabled: !!projectId },
     )
+
+  // tRPC utils for cache updates
+  const utils = trpc.useUtils()
 
   // Save mutation (auto-save, no toast on success — only on error)
   const saveMutation = trpc.worktreeConfig.save.useMutation({
@@ -96,12 +105,38 @@ function ProjectDetail({ projectId }: { projectId: string }) {
   const deleteMutation = trpc.projects.delete.useMutation({
     onSuccess: () => {
       toast.success("Project removed from list")
+
+      // Optimistically remove from list cache so UI updates without flicker
+      const remaining =
+        utils.projects.list
+          .getData()
+          ?.filter((p) => p.id !== projectId) ?? []
+      utils.projects.list.setData(undefined, remaining)
+
+      // If the removed project was globally selected, switch to the next
+      // available project so the layout (and this settings view) stays mounted.
+      // Falling back to null only when no projects remain at all.
       setSelectedProject((current) => {
-        if (current?.id === projectId) {
-          return null
+        if (current?.id !== projectId) return current
+        const next = remaining[0]
+        if (!next) return null
+        return {
+          id: next.id,
+          name: next.name,
+          path: next.path,
+          gitRemoteUrl: next.gitRemoteUrl,
+          gitProvider: next.gitProvider as
+            | "github"
+            | "gitlab"
+            | "bitbucket"
+            | null,
+          gitOwner: next.gitOwner,
+          gitRepo: next.gitRepo,
         }
-        return current
       })
+
+      // Tell parent so its locally-selected project switches off the deleted id
+      onDeleted()
     },
     onError: (err) => {
       toast.error(`Failed to delete project: ${err.message}`)
@@ -698,10 +733,19 @@ export function AgentsProjectsTab() {
     onSelect: setSelectedProjectId,
   })
 
-  // Auto-select first project
+  // Auto-select first project, or switch off a project that no longer exists
+  // (e.g. just removed via Danger Zone). Without this branch, ProjectDetail would
+  // remain mounted with a stale, deleted projectId.
   useEffect(() => {
-    if (selectedProjectId || isLoading) return
-    if (projects && projects.length > 0) {
+    if (isLoading || !projects) return
+    if (projects.length === 0) {
+      if (selectedProjectId !== null) setSelectedProjectId(null)
+      return
+    }
+    if (
+      !selectedProjectId ||
+      !projects.some((p) => p.id === selectedProjectId)
+    ) {
       setSelectedProjectId(projects[0]!.id)
     }
   }, [projects, selectedProjectId, isLoading])
@@ -802,7 +846,10 @@ export function AgentsProjectsTab() {
       {/* Right content - detail panel */}
       <div className="flex-1 min-w-0 h-full overflow-hidden">
         {selectedProjectId ? (
-          <ProjectDetail projectId={selectedProjectId} />
+          <ProjectDetail
+            projectId={selectedProjectId}
+            onDeleted={() => setSelectedProjectId(null)}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <FolderFilledIcon className="h-12 w-12 text-border mb-4" />
