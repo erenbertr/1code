@@ -76,7 +76,6 @@ import {
   unifiedSidebarEnabledAtom,
 } from "../../details-sidebar/atoms"
 import { DetailsSidebar } from "../../details-sidebar/details-sidebar"
-import { AgentsSubChatsSidebar } from "../../sidebar/agents-subchats-sidebar"
 import { FileViewerSidebar } from "../../file-viewer"
 import { FileSearchDialog } from "../../file-viewer/components/file-search-dialog"
 import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenAtomFamily } from "../../terminal/atoms"
@@ -165,6 +164,7 @@ import {
   clearSubChatDraft,
   getSubChatDraftFull
 } from "../lib/drafts"
+import { GeminiChatTransport } from "../lib/gemini-chat-transport"
 import { IPCChatTransport } from "../lib/ipc-chat-transport"
 import { isAssistantMessageQuestion } from "../lib/is-question"
 import {
@@ -4978,10 +4978,13 @@ Make sure to preserve all functionality from both branches when resolving confli
         const overrideProvider = subChatProviderOverrides[subChatId]
         if (!overrideProvider) return existing
 
-        const existingProvider: "claude-code" | "codex" =
-          (existing as any)?.transport instanceof ACPChatTransport
+        const existingTransport = (existing as any)?.transport
+        const existingProvider: "claude-code" | "codex" | "gemini" =
+          existingTransport instanceof ACPChatTransport
             ? "codex"
-            : "claude-code"
+            : existingTransport instanceof GeminiChatTransport
+              ? "gemini"
+              : "claude-code"
         if (existingProvider === overrideProvider) return existing
 
         const subChatForOverride = agentSubChats.find((sc) => sc.id === subChatId)
@@ -5027,7 +5030,7 @@ Make sure to preserve all functionality from both branches when resolving confli
 
       const chatProvider = inferProviderFromMessages(subChatId)
 
-      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
+      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | null = null
 
       if (isRemoteChat && chatSandboxUrl) {
         // Remote sandbox chat: use HTTP SSE transport
@@ -5041,6 +5044,12 @@ Make sure to preserve all functionality from both branches when resolving confli
           sandboxUrl: chatSandboxUrl,
           mode: subChatMode,
           model: modelString,
+        })
+      } else if (chatProvider === "gemini") {
+        // Gemini runs as a stateless API call — no worktree/cwd needed
+        transport = new GeminiChatTransport({
+          chatId,
+          subChatId,
         })
       } else if (worktreePath) {
         if (chatProvider === "codex") {
@@ -5328,7 +5337,7 @@ Make sure to preserve all functionality from both branches when resolving confli
     const isNewSubChatRemote = !!(agentChat as any)?.isRemote || !!newSubChatSandboxId
 
     const chatProvider = newSubChatProvider
-    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
+    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | GeminiChatTransport | null = null
 
     if (isNewSubChatRemote && newSubChatSandboxUrl) {
       // Remote sandbox chat: use HTTP SSE transport
@@ -5341,6 +5350,11 @@ Make sure to preserve all functionality from both branches when resolving confli
         sandboxUrl: newSubChatSandboxUrl,
         mode: subChatMode,
         model: modelString,
+      })
+    } else if (chatProvider === "gemini") {
+      newSubChatTransport = new GeminiChatTransport({
+        chatId,
+        subChatId: newId,
       })
     } else if (worktreePath) {
       if (chatProvider === "codex") {
@@ -5921,30 +5935,6 @@ Make sure to preserve all functionality from both branches when resolving confli
     <div className="flex h-full flex-col">
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
-        {/* Sub-chats Sidebar - left side, only when sidebar mode is active (desktop) */}
-        {!isMobileFullscreen && subChatsSidebarMode === "sidebar" && (
-          <ResizableSidebar
-            isOpen={true}
-            onClose={() => appStore.set(agentsSubChatsSidebarModeAtom, "tabs")}
-            widthAtom={agentsSubChatsSidebarWidthAtom}
-            minWidth={180}
-            maxWidth={400}
-            side="left"
-            animationDuration={0}
-            initialWidth={200}
-            exitWidth={0}
-            showResizeTooltip={false}
-          >
-            <AgentsSubChatsSidebar
-              onClose={() => appStore.set(agentsSubChatsSidebarModeAtom, "tabs")}
-              isMobile={false}
-              onBackToChats={onBackToChats}
-              isSidebarOpen={isSidebarOpen}
-              isLoading={isLocalChatLoading}
-              agentName={agentChat?.name ?? undefined}
-            />
-          </ResizableSidebar>
-        )}
         {/* Chat Panel */}
         <div
           className="flex-1 flex flex-col overflow-hidden relative"
