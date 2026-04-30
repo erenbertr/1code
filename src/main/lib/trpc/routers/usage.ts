@@ -267,20 +267,30 @@ async function readLatestCodexUsage(filePath: string): Promise<CodexLastTokenUsa
 }
 
 async function readCodexToday(): Promise<CodexTodayUsage | null> {
+  const sessionsRoot = join(homedir(), ".codex", "sessions")
+  if (!existsSync(sessionsRoot)) return null
+
+  const emptyToday: CodexTodayUsage = {
+    tokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    sessions: 0,
+  }
+
   const { year, month, day } = todayLocalParts()
-  const dayDir = join(homedir(), ".codex", "sessions", year, month, day)
-  if (!existsSync(dayDir)) return null
+  const dayDir = join(sessionsRoot, year, month, day)
+  if (!existsSync(dayDir)) return emptyToday
 
   let entries: string[]
   try {
     entries = await readdir(dayDir)
   } catch {
-    return null
+    return emptyToday
   }
 
   const jsonlFiles = entries.filter((name) => name.endsWith(".jsonl"))
   if (jsonlFiles.length === 0) {
-    return { tokens: 0, inputTokens: 0, outputTokens: 0, sessions: 0 }
+    return emptyToday
   }
 
   const usages = await Promise.all(
