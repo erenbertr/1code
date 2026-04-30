@@ -604,6 +604,11 @@ export const agentsSubChatsSidebarWidthAtom = atomWithStorage<number>(
 // Updated by onFinish callback in Chat instances
 export const agentsUnseenChangesAtom = atom<Set<string>>(new Set<string>())
 
+// Track chats whose latest assistant message ends with a text question (awaiting
+// the user's answer). Persists across views — only cleared when the user sends a
+// new message in that chat. Used for the sidebar orange "question" indicator.
+export const chatsAwaitingAnswerAtom = atom<Set<string>>(new Set<string>())
+
 // Current todos state per sub-chat
 // Syncs the first (creation) todo tool with subsequent updates
 // Map structure: { [subChatId]: TodoState }
