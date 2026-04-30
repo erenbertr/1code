@@ -201,19 +201,35 @@ function GithubCommitsRow({
   week,
   month,
   login,
+  onRefresh,
+  isRefreshing,
 }: {
   today: number
   week: number
   month: number
   login: string
+  onRefresh: () => void
+  isRefreshing: boolean
 }) {
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Refresh GitHub commit stats"
+          aria-busy={isRefreshing}
+          onClick={onRefresh}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              onRefresh()
+            }
+          }}
           className={cn(
             "flex items-center justify-between gap-2 px-1 py-0.5 rounded",
-            "hover:bg-muted/50 cursor-default transition-colors",
+            "hover:bg-muted/50 cursor-pointer transition-colors",
+            isRefreshing && "opacity-60",
           )}
         >
           <span className="text-muted-foreground/80">Commits</span>
@@ -290,10 +306,14 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
     retry: false,
   })
 
-  const { data: githubStats } = trpc.github.commitStats.useQuery(undefined, {
-    refetchInterval: 5 * 60_000,
+  const {
+    data: githubStats,
+    refetch: refetchGithubStats,
+    isFetching: isFetchingGithubStats,
+  } = trpc.github.commitStats.useQuery(undefined, {
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
-    staleTime: 60_000,
+    staleTime: 30_000,
     retry: false,
   })
 
@@ -463,6 +483,10 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
           week={githubStats.stats.week}
           month={githubStats.stats.month}
           login={githubStats.stats.login}
+          onRefresh={() => {
+            void refetchGithubStats()
+          }}
+          isRefreshing={isFetchingGithubStats}
         />
       )}
     </div>

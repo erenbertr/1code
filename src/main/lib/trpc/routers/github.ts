@@ -24,27 +24,13 @@ export type GithubCommitStatsResult =
       message?: string
     }
 
-const GITHUB_API = "https://api.github.com/graphql"
+const GITHUB_REST = "https://api.github.com"
 
-const GRAPHQL_QUERY = `
-  query($todayFrom: DateTime!, $weekFrom: DateTime!, $monthFrom: DateTime!, $to: DateTime!) {
-    viewer {
-      login
-      today: contributionsCollection(from: $todayFrom, to: $to) {
-        totalCommitContributions
-        restrictedContributionsCount
-      }
-      week: contributionsCollection(from: $weekFrom, to: $to) {
-        totalCommitContributions
-        restrictedContributionsCount
-      }
-      month: contributionsCollection(from: $monthFrom, to: $to) {
-        totalCommitContributions
-        restrictedContributionsCount
-      }
-    }
-  }
-`
+const COMMON_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+  "User-Agent": "1code-desktop",
+} as const
 
 function startOfTodayLocal(): Date {
   const d = new Date()
@@ -66,51 +52,111 @@ function startOfMonthLocal(): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
 }
 
-async function fetchCommitStats(
-  token: string,
-): Promise<GithubCommitStatsResult> {
-  const to = new Date()
-  const todayFrom = startOfTodayLocal()
-  const weekFrom = startOfWeekLocal()
-  const monthFrom = startOfMonthLocal()
+type FetchFailure = {
+  available: false
+  reason: "no_token" | "unauthorized" | "error"
+  message?: string
+}
 
+async function fetchLogin(
+  token: string,
+): Promise<{ ok: true; login: string } | { ok: false; result: FetchFailure }> {
   let response: Response
   try {
-    response = await fetch(GITHUB_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "User-Agent": "1code-desktop",
-      },
-      body: JSON.stringify({
-        query: GRAPHQL_QUERY,
-        variables: {
-          todayFrom: todayFrom.toISOString(),
-          weekFrom: weekFrom.toISOString(),
-          monthFrom: monthFrom.toISOString(),
-          to: to.toISOString(),
-        },
-      }),
+    response = await fetch(`${GITHUB_REST}/user`, {
+      headers: { Authorization: `Bearer ${token}`, ...COMMON_HEADERS },
     })
   } catch (error) {
     return {
-      available: false,
-      reason: "error",
-      message: error instanceof Error ? error.message : "Network error",
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: error instanceof Error ? error.message : "Network error",
+      },
     }
   }
 
   if (response.status === 401 || response.status === 403) {
-    return { available: false, reason: "unauthorized" }
+    return { ok: false, result: { available: false, reason: "unauthorized" } }
   }
 
   if (!response.ok) {
     return {
-      available: false,
-      reason: "error",
-      message: `GitHub API ${response.status}`,
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: `GitHub API ${response.status}`,
+      },
+    }
+  }
+
+  let data: unknown
+  try {
+    data = await response.json()
+  } catch {
+    return {
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: "Invalid response",
+      },
+    }
+  }
+
+  const login =
+    typeof data === "object" &&
+    data !== null &&
+    typeof (data as { login?: unknown }).login === "string"
+      ? (data as { login: string }).login
+      : ""
+
+  if (!login) {
+    return {
+      ok: false,
+      result: { available: false, reason: "error", message: "No login" },
+    }
+  }
+
+  return { ok: true, login }
+}
+
+async function searchCommitCount(
+  token: string,
+  query: string,
+): Promise<{ ok: true; count: number } | { ok: false; result: FetchFailure }> {
+  const url = `${GITHUB_REST}/search/commits?q=${encodeURIComponent(query)}&per_page=1`
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, ...COMMON_HEADERS },
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: error instanceof Error ? error.message : "Network error",
+      },
+    }
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, result: { available: false, reason: "unauthorized" } }
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: `GitHub API ${response.status}`,
+      },
     }
   }
 
@@ -118,54 +164,56 @@ async function fetchCommitStats(
   try {
     payload = await response.json()
   } catch {
-    return { available: false, reason: "error", message: "Invalid response" }
+    return {
+      ok: false,
+      result: {
+        available: false,
+        reason: "error",
+        message: "Invalid response",
+      },
+    }
   }
 
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    "errors" in payload
-  ) {
-    const errors = (payload as { errors?: Array<{ message?: string }> })?.errors
-    const message = errors?.[0]?.message ?? "GraphQL error"
-    return { available: false, reason: "error", message }
-  }
+  const total =
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof (payload as { total_count?: unknown }).total_count === "number"
+      ? (payload as { total_count: number }).total_count
+      : 0
 
-  const data = (payload as { data?: unknown }).data
-  if (typeof data !== "object" || data === null) {
-    return { available: false, reason: "error", message: "Empty response" }
-  }
+  return { ok: true, count: total }
+}
 
-  const viewer = (data as { viewer?: unknown }).viewer
-  if (typeof viewer !== "object" || viewer === null) {
-    return { available: false, reason: "error", message: "No viewer" }
-  }
+async function fetchCommitStats(
+  token: string,
+): Promise<GithubCommitStatsResult> {
+  const loginResult = await fetchLogin(token)
+  if (!loginResult.ok) return loginResult.result
+  const { login } = loginResult
 
-  const v = viewer as Record<string, unknown>
-  const login = typeof v.login === "string" ? v.login : ""
+  const todayFrom = startOfTodayLocal()
+  const weekFrom = startOfWeekLocal()
+  const monthFrom = startOfMonthLocal()
 
-  function readWindow(window: unknown): number {
-    if (typeof window !== "object" || window === null) return 0
-    const w = window as Record<string, unknown>
-    const total =
-      typeof w.totalCommitContributions === "number"
-        ? w.totalCommitContributions
-        : 0
-    const restricted =
-      typeof w.restrictedContributionsCount === "number"
-        ? w.restrictedContributionsCount
-        : 0
-    // restrictedContributionsCount covers private repos the token can't see
-    // when scope is limited; surface combined count to the user.
-    return total + restricted
-  }
+  const buildQuery = (from: Date): string =>
+    `author:${login} author-date:>=${from.toISOString()}`
+
+  const [todayRes, weekRes, monthRes] = await Promise.all([
+    searchCommitCount(token, buildQuery(todayFrom)),
+    searchCommitCount(token, buildQuery(weekFrom)),
+    searchCommitCount(token, buildQuery(monthFrom)),
+  ])
+
+  if (!todayRes.ok) return todayRes.result
+  if (!weekRes.ok) return weekRes.result
+  if (!monthRes.ok) return monthRes.result
 
   return {
     available: true,
     stats: {
-      today: readWindow(v.today),
-      week: readWindow(v.week),
-      month: readWindow(v.month),
+      today: todayRes.count,
+      week: weekRes.count,
+      month: monthRes.count,
       login,
       fetchedAt: new Date().toISOString(),
     },
