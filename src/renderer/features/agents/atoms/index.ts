@@ -138,6 +138,11 @@ export const mobileDeviceAtomFamily = atomFamily((chatId: string) =>
 // Set when generation starts, cleared when onFinish fires
 export const loadingSubChatsAtom = atom<Map<string, string>>(new Map())
 
+// Chats that just completed a Commit + Push from the status card.
+// In-memory only; cleared when the user resumes the chat by sending a message,
+// or naturally on app restart. Used to render a check icon in the sidebar.
+export const pushedChatIdsAtom = atom<Set<string>>(new Set<string>())
+
 // Helper to set loading state
 export const setLoading = (
   setter: (fn: (prev: Map<string, string>) => Map<string, string>) => void,

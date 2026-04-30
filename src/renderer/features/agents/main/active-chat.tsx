@@ -117,6 +117,7 @@ import {
   pendingPlanApprovalsAtom,
   pendingPrMessageAtom,
   pendingReviewMessageAtom,
+  pushedChatIdsAtom,
   pendingUserQuestionsAtom,
   planEditRefetchTriggerAtomFamily,
   planSidebarOpenAtomFamily,
@@ -958,6 +959,19 @@ const ChatViewInner = memo(function ChatViewInner({
   // When streaming starts, set loading. When it stops, clear loading.
   // Unseen changes, sound notification, and sidebar refresh are handled in onFinish callback
   const setLoadingSubChats = useSetAtom(loadingSubChatsAtom)
+  const setPushedChatIds = useSetAtom(pushedChatIdsAtom)
+
+  // Drop the pushed-checkmark for this chat as soon as the user resumes work
+  // (sends a new message). Cheap no-op when not currently marked.
+  const clearPushedMark = useCallback(() => {
+    if (!parentChatId) return
+    setPushedChatIds((prev) => {
+      if (!prev.has(parentChatId)) return prev
+      const next = new Set(prev)
+      next.delete(parentChatId)
+      return next
+    })
+  }, [parentChatId, setPushedChatIds])
 
   useEffect(() => {
     const storedParentChatId = agentChatStore.getParentChatId(subChatId)
@@ -2173,6 +2187,8 @@ const ChatViewInner = memo(function ChatViewInner({
       return
     }
 
+    clearPushedMark()
+
     // Clear any expired questions when user sends a new message
     setExpiredQuestionsMap((current) => {
       if (current.has(subChatId)) {
@@ -2431,12 +2447,15 @@ const ChatViewInner = memo(function ChatViewInner({
     teamId,
     addToQueue,
     setExpiredQuestionsMap,
+    clearPushedMark,
   ])
 
   // Queue handlers for sending queued messages
   const handleSendFromQueue = useCallback(async (itemId: string) => {
     const item = popItemFromQueue(subChatId, itemId)
     if (!item) return
+
+    clearPushedMark()
 
     try {
       // Stop current stream if streaming and wait for status to become ready.
@@ -2525,7 +2544,7 @@ const ChatViewInner = memo(function ChatViewInner({
       // Requeue the item at the front so it isn't lost
       useMessageQueueStore.getState().prependItem(subChatId, item)
     }
-  }, [subChatId, popItemFromQueue, handleStop])
+  }, [subChatId, popItemFromQueue, handleStop, clearPushedMark])
 
   const handleRemoveFromQueue = useCallback((itemId: string) => {
     removeFromQueue(subChatId, itemId)
@@ -2537,6 +2556,8 @@ const ChatViewInner = memo(function ChatViewInner({
     if (sandboxSetupStatus !== "ready") {
       return
     }
+
+    clearPushedMark()
 
     // Get value from uncontrolled editor
     const inputValue = editorRef.current?.getValue() || ""
@@ -2659,6 +2680,7 @@ const ChatViewInner = memo(function ChatViewInner({
     subChatId,
     handleStop,
     clearAll,
+    clearPushedMark,
   ])
 
   // NOTE: Auto-processing of queue is now handled globally by QueueProcessor
@@ -4523,12 +4545,21 @@ Make sure to preserve all functionality from both branches when resolving confli
     commitChanges({ filePaths: selectedPaths })
   }, [commitChanges])
 
+  const setPushedChatIds = useSetAtom(pushedChatIdsAtom)
+
   const handleCommitAndPush = useCallback(async (selectedPaths: string[]) => {
     const didCommit = await commitChanges({ filePaths: selectedPaths })
-    if (didCommit) {
-      pushBranch()
+    if (!didCommit) return
+    const didPush = await pushBranch()
+    if (didPush && chatId) {
+      setPushedChatIds((prev) => {
+        if (prev.has(chatId)) return prev
+        const next = new Set(prev)
+        next.add(chatId)
+        return next
+      })
     }
-  }, [commitChanges, pushBranch])
+  }, [commitChanges, pushBranch, chatId, setPushedChatIds])
 
   const isCommittingCombined = isCommittingChanges || isPushing
 

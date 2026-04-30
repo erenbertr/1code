@@ -17,6 +17,7 @@ export {
   agentsUnseenChangesAtom,
   agentsSubChatUnseenChangesAtom,
   loadingSubChatsAtom,
+  pushedChatIdsAtom,
   setLoading,
   clearLoading,
   MODEL_ID_MAP,

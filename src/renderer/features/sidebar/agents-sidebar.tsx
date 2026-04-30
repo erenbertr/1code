@@ -27,7 +27,7 @@ import {
   betaAutomationsEnabledAtom,
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
-import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
+import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Check } from "lucide-react"
 import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconTerminal2 } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
@@ -83,6 +83,7 @@ import {
   selectedDraftIdAtom,
   showNewChatFormAtom,
   loadingSubChatsAtom,
+  pushedChatIdsAtom,
   agentsUnseenChangesAtom,
   agentsSubChatUnseenChangesAtom,
   archivePopoverOpenAtom,
@@ -1485,6 +1486,7 @@ export function AgentsSidebar({
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
+  const pushedChatIds = useAtomValue(pushedChatIdsAtom)
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
   // Use ref instead of state to avoid re-renders on hover
   const isSidebarHoveredRef = useRef(false)
@@ -2931,6 +2933,7 @@ export function AgentsSidebar({
                         const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
                         const hasPendingPlan = workspacePendingPlans.has(chat.id)
                         const isActive = isLoading || hasPendingQuestion || hasPendingPlan
+                        const isPushed = !isActive && pushedChatIds.has(chat.id)
 
                         return (
                           <ContextMenu key={chat.id}>
@@ -2966,6 +2969,18 @@ export function AgentsSidebar({
                                       className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-muted-foreground"
                                     >
                                       <GridPulseSpinner size={12} />
+                                    </motion.span>
+                                  ) : isPushed ? (
+                                    <motion.span
+                                      key="pushed"
+                                      initial={{ opacity: 0, scale: 0.85 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.85 }}
+                                      transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                      aria-label="Pushed"
+                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-emerald-500"
+                                    >
+                                      <Check size={12} strokeWidth={2.5} />
                                     </motion.span>
                                   ) : (
                                     <motion.span
