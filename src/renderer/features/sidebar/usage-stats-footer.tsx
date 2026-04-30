@@ -43,13 +43,6 @@ function formatResetIn(resetsAt: string | null): string | null {
   return `${minutes}m`
 }
 
-function utilizationColor(utilization: number | null): string {
-  if (utilization === null) return "bg-muted-foreground/20"
-  if (utilization >= 90) return "bg-red-500/50"
-  if (utilization >= 70) return "bg-amber-500/40"
-  return "bg-foreground/25"
-}
-
 interface UsageBreakdown {
   label: string
   value: number
@@ -117,54 +110,43 @@ function ProviderRow({
   )
 }
 
-function PlanRow({
-  label,
-  utilization,
-  resetsAt,
-  tooltipDescription,
-}: {
+interface QuotaCell {
+  key: string
   label: string
+  fullLabel: string
   utilization: number | null
   resetsAt: string | null
   tooltipDescription: string
-}) {
-  const pct = utilization === null ? 0 : Math.max(0, Math.min(100, utilization))
-  const resetIn = formatResetIn(resetsAt)
+}
+
+function QuotaChip({ cell }: { cell: QuotaCell }) {
+  const resetIn = formatResetIn(cell.resetsAt)
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
         <div
           className={cn(
-            "flex flex-col gap-1 px-1 py-1 rounded",
-            "hover:bg-muted/50 cursor-default transition-colors",
+            "flex h-[18px] items-center justify-between gap-1 px-1.5 rounded-sm cursor-default",
+            "hover:bg-foreground/[0.06] transition-colors",
           )}
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground/70 truncate">{label}</span>
-            <span className="font-mono text-muted-foreground tabular-nums">
-              {formatPercent(utilization)}
-            </span>
-          </div>
-          <div className="h-1 w-full rounded-full bg-foreground/[0.06] overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all",
-                utilizationColor(utilization),
-              )}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          <span className="text-[9px] text-muted-foreground/90 truncate">
+            {cell.label}
+          </span>
+          <span className="font-mono text-[9px] tabular-nums text-foreground/80">
+            {formatPercent(cell.utilization)}
+          </span>
         </div>
       </TooltipTrigger>
-      <TooltipContent side="right" align="end" className="min-w-[180px]">
-        <div className="font-medium text-foreground mb-1">{label}</div>
+      <TooltipContent side="top" align="end" className="min-w-[180px]">
+        <div className="font-medium text-foreground mb-1">{cell.fullLabel}</div>
         <div className="text-[11px] text-muted-foreground mb-1">
-          {tooltipDescription}
+          {cell.tooltipDescription}
         </div>
         <div className="flex justify-between gap-4 text-[11px]">
           <span className="text-muted-foreground">Used</span>
           <span className="font-mono text-foreground">
-            {formatPercent(utilization)}
+            {formatPercent(cell.utilization)}
           </span>
         </div>
         {resetIn && (
@@ -175,6 +157,33 @@ function PlanRow({
         )}
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+function ProviderQuotaRow({
+  name,
+  cells,
+}: {
+  name: string
+  cells: QuotaCell[]
+}) {
+  if (cells.length === 0) return null
+  return (
+    <div className="flex items-center gap-2 px-1 py-0.5">
+      <span className="w-12 shrink-0 text-muted-foreground/70 truncate">
+        {name}
+      </span>
+      <div
+        className="flex-1 grid gap-1"
+        style={{
+          gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))`,
+        }}
+      >
+        {cells.map((cell) => (
+          <QuotaChip key={cell.key} cell={cell} />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -296,121 +305,103 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
   const planUsage = plan?.available ? plan.usage : null
   const codexPlanUsage = codexPlan?.available ? codexPlan.usage : null
   const geminiPlanUsage = geminiPlan?.available ? geminiPlan.usage : null
-  const hasGeminiPlanRows =
-    geminiPlanUsage !== null &&
-    (geminiPlanUsage.primary !== null ||
-      geminiPlanUsage.secondary !== null ||
-      geminiPlanUsage.tertiary !== null)
+
+  const claudeCells: QuotaCell[] = [
+    planUsage?.fiveHour && {
+      key: "claude-5h",
+      label: "5h",
+      fullLabel: "Current session",
+      utilization: planUsage.fiveHour.utilization,
+      resetsAt: planUsage.fiveHour.resetsAt,
+      tooltipDescription: "Rolling 5-hour window.",
+    },
+    planUsage?.sevenDay && {
+      key: "claude-7d",
+      label: "7d",
+      fullLabel: "Weekly · all models",
+      utilization: planUsage.sevenDay.utilization,
+      resetsAt: planUsage.sevenDay.resetsAt,
+      tooltipDescription: "Combined 7-day usage across all models.",
+    },
+    planUsage?.sevenDayOpus && {
+      key: "claude-opus",
+      label: "Opus",
+      fullLabel: "Weekly · Opus",
+      utilization: planUsage.sevenDayOpus.utilization,
+      resetsAt: planUsage.sevenDayOpus.resetsAt,
+      tooltipDescription: "7-day Opus-only quota.",
+    },
+    planUsage?.extraUsage?.isEnabled &&
+      planUsage.extraUsage.utilization !== null && {
+        key: "claude-extra",
+        label: "Extra",
+        fullLabel: "Extra usage",
+        utilization: planUsage.extraUsage.utilization,
+        resetsAt: null,
+        tooltipDescription:
+          `${planUsage.extraUsage.usedCredits ?? 0} / ${planUsage.extraUsage.monthlyLimit ?? 0} ${planUsage.extraUsage.currency ?? ""}`.trim(),
+      },
+  ].filter(Boolean) as QuotaCell[]
+
+  const codexCells: QuotaCell[] = [
+    codexPlanUsage?.primary && {
+      key: "codex-5h",
+      label: "5h",
+      fullLabel: "Codex · current session",
+      utilization: codexPlanUsage.primary.utilization,
+      resetsAt: codexPlanUsage.primary.resetsAt,
+      tooltipDescription: "Codex 5-hour rolling window.",
+    },
+    codexPlanUsage?.secondary && {
+      key: "codex-7d",
+      label: "7d",
+      fullLabel: "Codex · weekly",
+      utilization: codexPlanUsage.secondary.utilization,
+      resetsAt: codexPlanUsage.secondary.resetsAt,
+      tooltipDescription: "Codex 7-day rolling window.",
+    },
+  ].filter(Boolean) as QuotaCell[]
+
+  const geminiCells: QuotaCell[] = [
+    geminiPlanUsage?.primary && {
+      key: "gemini-pro",
+      label: "Pro",
+      fullLabel: "Gemini · Pro",
+      utilization: geminiPlanUsage.primary.utilization,
+      resetsAt: geminiPlanUsage.primary.resetsAt,
+      tooltipDescription: "Gemini Pro models · 24-hour quota.",
+    },
+    geminiPlanUsage?.secondary && {
+      key: "gemini-flash",
+      label: "Flash",
+      fullLabel: "Gemini · Flash",
+      utilization: geminiPlanUsage.secondary.utilization,
+      resetsAt: geminiPlanUsage.secondary.resetsAt,
+      tooltipDescription: "Gemini Flash models · 24-hour quota.",
+    },
+    geminiPlanUsage?.tertiary && {
+      key: "gemini-lite",
+      label: "Lite",
+      fullLabel: "Gemini · Flash Lite",
+      utilization: geminiPlanUsage.tertiary.utilization,
+      resetsAt: geminiPlanUsage.tertiary.resetsAt,
+      tooltipDescription: "Gemini Flash Lite models · 24-hour quota.",
+    },
+  ].filter(Boolean) as QuotaCell[]
+
+  const hasAnyPlanRow =
+    claudeCells.length > 0 || codexCells.length > 0 || geminiCells.length > 0
 
   return (
     <div className="px-2 pt-2 pb-1 border-t border-border/40 text-[11px] select-none">
-      {planUsage && (
+      {hasAnyPlanRow && (
         <>
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-0.5">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-1">
             Plan limits
           </div>
-          {planUsage.fiveHour && (
-            <PlanRow
-              label="Current session"
-              utilization={planUsage.fiveHour.utilization}
-              resetsAt={planUsage.fiveHour.resetsAt}
-              tooltipDescription="Rolling 5-hour window."
-            />
-          )}
-          {planUsage.sevenDay && (
-            <PlanRow
-              label="Weekly · all models"
-              utilization={planUsage.sevenDay.utilization}
-              resetsAt={planUsage.sevenDay.resetsAt}
-              tooltipDescription="Combined 7-day usage across all models."
-            />
-          )}
-          {planUsage.sevenDaySonnet && (
-            <PlanRow
-              label="Weekly · Sonnet"
-              utilization={planUsage.sevenDaySonnet.utilization}
-              resetsAt={planUsage.sevenDaySonnet.resetsAt}
-              tooltipDescription="7-day Sonnet-only quota."
-            />
-          )}
-          {planUsage.sevenDayOpus && (
-            <PlanRow
-              label="Weekly · Opus"
-              utilization={planUsage.sevenDayOpus.utilization}
-              resetsAt={planUsage.sevenDayOpus.resetsAt}
-              tooltipDescription="7-day Opus-only quota."
-            />
-          )}
-          {planUsage.extraUsage?.isEnabled &&
-            planUsage.extraUsage.utilization !== null && (
-              <PlanRow
-                label="Extra usage"
-                utilization={planUsage.extraUsage.utilization}
-                resetsAt={null}
-                tooltipDescription={`${planUsage.extraUsage.usedCredits ?? 0} / ${planUsage.extraUsage.monthlyLimit ?? 0} ${planUsage.extraUsage.currency ?? ""}`.trim()}
-              />
-            )}
-        </>
-      )}
-
-      {codexPlanUsage && (codexPlanUsage.primary || codexPlanUsage.secondary) && (
-        <>
-          {!planUsage && (
-            <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-0.5">
-              Plan limits
-            </div>
-          )}
-          {codexPlanUsage.primary && (
-            <PlanRow
-              label="Codex · current session"
-              utilization={codexPlanUsage.primary.utilization}
-              resetsAt={codexPlanUsage.primary.resetsAt}
-              tooltipDescription="Codex 5-hour rolling window."
-            />
-          )}
-          {codexPlanUsage.secondary && (
-            <PlanRow
-              label="Codex · weekly"
-              utilization={codexPlanUsage.secondary.utilization}
-              resetsAt={codexPlanUsage.secondary.resetsAt}
-              tooltipDescription="Codex 7-day rolling window."
-            />
-          )}
-        </>
-      )}
-
-      {hasGeminiPlanRows && geminiPlanUsage && (
-        <>
-          {!planUsage &&
-            !(codexPlanUsage && (codexPlanUsage.primary || codexPlanUsage.secondary)) && (
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 px-1 pb-0.5">
-                Plan limits
-              </div>
-            )}
-          {geminiPlanUsage.primary && (
-            <PlanRow
-              label="Gemini · Pro"
-              utilization={geminiPlanUsage.primary.utilization}
-              resetsAt={geminiPlanUsage.primary.resetsAt}
-              tooltipDescription="Gemini Pro models · 24-hour quota."
-            />
-          )}
-          {geminiPlanUsage.secondary && (
-            <PlanRow
-              label="Gemini · Flash"
-              utilization={geminiPlanUsage.secondary.utilization}
-              resetsAt={geminiPlanUsage.secondary.resetsAt}
-              tooltipDescription="Gemini Flash models · 24-hour quota."
-            />
-          )}
-          {geminiPlanUsage.tertiary && (
-            <PlanRow
-              label="Gemini · Flash Lite"
-              utilization={geminiPlanUsage.tertiary.utilization}
-              resetsAt={geminiPlanUsage.tertiary.resetsAt}
-              tooltipDescription="Gemini Flash Lite models · 24-hour quota."
-            />
-          )}
+          <ProviderQuotaRow name="Claude" cells={claudeCells} />
+          <ProviderQuotaRow name="Codex" cells={codexCells} />
+          <ProviderQuotaRow name="Gemini" cells={geminiCells} />
         </>
       )}
 
