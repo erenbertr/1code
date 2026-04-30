@@ -377,26 +377,9 @@ const DraftItem = React.memo(function DraftItem({
 
 // ── Grid Pulse Spinner ─────────────────────────────────────────────────────
 // A 2x2 grid of dots that pulse in staggered sequence — used as the loading
-// indicator for active sub-chat threads. Much more visually appealing than
-// a simple spinning circle at small sizes.
-const gridDotVariants = {
-  idle: { opacity: 0.15, scale: 0.8 },
-  pulse: {
-    opacity: [0.15, 1, 0.15],
-    scale: [0.8, 1.15, 0.8],
-    transition: {
-      duration: 1.4,
-      repeat: Infinity,
-      ease: "easeInOut",
-    },
-  },
-  // Paused state — dots visible at rest, no animation
-  paused: {
-    opacity: 0.6,
-    scale: 1,
-    transition: { duration: 0.3, ease: "easeOut" },
-  },
-}
+// indicator for active sub-chat threads. Uses CSS keyframes for reliability
+// across re-renders (motion variant propagation was unreliable here).
+const GRID_PULSE_STYLE_ID = "grid-pulse-spinner-keyframes"
 
 const GridPulseSpinner = React.memo(function GridPulseSpinner({
   size = 10,
@@ -412,21 +395,29 @@ const GridPulseSpinner = React.memo(function GridPulseSpinner({
   const gap = Math.max(1, Math.round(size * 0.12))
 
   return (
-    <motion.div
-      animate={paused ? "paused" : "pulse"}
-      transition={{ staggerChildren: paused ? 0 : 0.15 }}
+    <div
       className={cn("inline-grid grid-cols-2 items-center justify-items-center", className)}
       style={{ width: size, height: size, gap }}
     >
+      <style>{`
+        @keyframes gridPulse {
+          0%, 100% { opacity: 0.15; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.15); }
+        }
+      `}</style>
       {[0, 1, 2, 3].map((i) => (
-        <motion.div
+        <div
           key={i}
-          variants={gridDotVariants}
           className="rounded-full bg-current"
-          style={{ width: dotSize, height: dotSize }}
+          style={{
+            width: dotSize,
+            height: dotSize,
+            opacity: paused ? 0.6 : undefined,
+            animation: paused ? undefined : `gridPulse 1.4s ease-in-out ${i * 0.15}s infinite`,
+          }}
         />
       ))}
-    </motion.div>
+    </div>
   )
 })
 
