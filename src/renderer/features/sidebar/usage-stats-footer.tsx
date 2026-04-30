@@ -25,8 +25,7 @@ function pluralize(count: number, singular: string, plural: string): string {
 
 function formatPercent(utilization: number | null): string {
   if (utilization === null) return "—"
-  const pct = Math.round(utilization * 100)
-  return `${pct}%`
+  return `${Math.round(utilization)}%`
 }
 
 function formatResetIn(resetsAt: string | null): string | null {
@@ -46,8 +45,8 @@ function formatResetIn(resetsAt: string | null): string | null {
 
 function utilizationColor(utilization: number | null): string {
   if (utilization === null) return "bg-muted-foreground/30"
-  if (utilization >= 0.9) return "bg-red-500"
-  if (utilization >= 0.7) return "bg-amber-500"
+  if (utilization >= 90) return "bg-red-500"
+  if (utilization >= 70) return "bg-amber-500"
   return "bg-blue-500"
 }
 
@@ -129,7 +128,7 @@ function PlanRow({
   resetsAt: string | null
   tooltipDescription: string
 }) {
-  const pct = utilization === null ? 0 : Math.min(100, utilization * 100)
+  const pct = utilization === null ? 0 : Math.max(0, Math.min(100, utilization))
   const resetIn = formatResetIn(resetsAt)
   return (
     <Tooltip delayDuration={300}>
