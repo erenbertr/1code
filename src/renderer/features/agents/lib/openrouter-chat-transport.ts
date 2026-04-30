@@ -14,6 +14,8 @@ type UIMessageChunk = any
 type OpenRouterChatTransportConfig = {
   chatId: string
   subChatId: string
+  cwd?: string
+  projectPath?: string
 }
 
 type ImageAttachment = {
@@ -90,6 +92,10 @@ export class OpenRouterChatTransport implements ChatTransport<UIMessage> {
             modelId,
             ...(sessionId ? { sessionId } : {}),
             ...(images.length > 0 ? { images } : {}),
+            ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
+            ...(this.config.projectPath
+              ? { projectPath: this.config.projectPath }
+              : {}),
           },
           {
             onData: (chunk: UIMessageChunk) => {

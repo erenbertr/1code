@@ -5065,6 +5065,8 @@ Make sure to preserve all functionality from both branches when resolving confli
         transport = new OpenRouterChatTransport({
           chatId,
           subChatId,
+          ...(worktreePath ? { cwd: worktreePath } : {}),
+          ...(projectPath ? { projectPath } : {}),
         })
       } else if (worktreePath) {
         if (chatProvider === "codex") {
@@ -5376,6 +5378,8 @@ Make sure to preserve all functionality from both branches when resolving confli
       newSubChatTransport = new OpenRouterChatTransport({
         chatId,
         subChatId: newId,
+        ...(worktreePath ? { cwd: worktreePath } : {}),
+        ...(projectPath ? { projectPath } : {}),
       })
     } else if (worktreePath) {
       if (chatProvider === "codex") {

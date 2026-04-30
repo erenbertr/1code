@@ -3,6 +3,8 @@ import { observable } from "@trpc/server/observable"
 import { streamText } from "ai"
 import { eq } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
+import * as fs from "node:fs/promises"
+import * as path from "node:path"
 import { z } from "zod"
 import { getDatabase, subChats } from "../../db"
 import {
@@ -186,6 +188,114 @@ function buildModelMessageContent(
   return content
 }
 
+async function readWorkspaceInstructions(
+  cwd: string | undefined,
+): Promise<{ filename: string; content: string } | null> {
+  if (!cwd) return null
+  const candidates = ["AGENTS.md", "CLAUDE.md"]
+  for (const filename of candidates) {
+    try {
+      const filePath = path.join(cwd, filename)
+      const content = await fs.readFile(filePath, "utf-8")
+      if (content.trim()) {
+        return { filename, content }
+      }
+    } catch {
+      // missing or unreadable - try next
+    }
+  }
+  return null
+}
+
+async function buildSystemPrompt(
+  cwd: string | undefined,
+  projectPath: string | undefined,
+  modelId: string,
+): Promise<string> {
+  const lines: string[] = []
+  lines.push(
+    "You are a helpful AI coding assistant running inside the 1Code desktop app via OpenRouter.",
+  )
+  lines.push(
+    `Model: ${modelId}. You do not have direct file or shell access in this session — answer based on the workspace context provided below and any user-supplied snippets.`,
+  )
+  if (projectPath) {
+    lines.push(`Project root: ${projectPath}`)
+  }
+  if (cwd) {
+    lines.push(`Working directory: ${cwd}`)
+  }
+  const instructions = await readWorkspaceInstructions(cwd)
+  if (instructions) {
+    lines.push("")
+    lines.push(`# ${instructions.filename}`)
+    lines.push(
+      `The following are the project's ${instructions.filename} instructions:`,
+    )
+    lines.push("")
+    lines.push(instructions.content)
+  }
+  return lines.join("\n")
+}
+
+function convertStoredMessagesToModelMessages(
+  storedMessages: any[],
+): Array<{ role: "user" | "assistant"; content: any }> {
+  const out: Array<{ role: "user" | "assistant"; content: any }> = []
+  for (const msg of storedMessages) {
+    if (!msg || !Array.isArray(msg.parts)) continue
+    if (msg.role === "user") {
+      const textChunks: string[] = []
+      const fileSnippets: string[] = []
+      const imageParts: any[] = []
+      for (const part of msg.parts) {
+        if (part?.type === "text" && typeof part.text === "string") {
+          textChunks.push(part.text)
+        } else if (part?.type === "file-content") {
+          const filePath =
+            typeof part.filePath === "string" ? part.filePath : undefined
+          const fileName = filePath?.split("/").pop() || filePath || "file"
+          const content = typeof part.content === "string" ? part.content : ""
+          fileSnippets.push(`\n--- ${fileName} ---\n${content}`)
+        } else if (part?.type === "data-image" && part.data) {
+          const data = part.data as Record<string, unknown>
+          const base64Data =
+            typeof data.base64Data === "string" ? data.base64Data : null
+          const mediaType =
+            typeof data.mediaType === "string" ? data.mediaType : null
+          if (base64Data && mediaType) {
+            imageParts.push({
+              type: "file",
+              mediaType,
+              data: base64Data,
+              ...(typeof data.filename === "string"
+                ? { filename: data.filename }
+                : {}),
+            })
+          }
+        }
+      }
+      const text = textChunks.join("\n") + fileSnippets.join("")
+      if (!text && imageParts.length === 0) continue
+      const content: any[] = []
+      if (text) content.push({ type: "text", text })
+      for (const image of imageParts) content.push(image)
+      out.push({ role: "user", content })
+    } else if (msg.role === "assistant") {
+      const textChunks: string[] = []
+      for (const part of msg.parts) {
+        if (part?.type === "text" && typeof part.text === "string") {
+          textChunks.push(part.text)
+        }
+      }
+      const text = textChunks.join("")
+      if (!text) continue
+      out.push({ role: "assistant", content: text })
+    }
+  }
+  return out
+}
+
 function humanizeOpenRouterError(rawMessage: string): string {
   if (!rawMessage) return "Stream failed"
   if (/401|unauthorized|invalid api key/i.test(rawMessage)) {
@@ -289,6 +399,8 @@ export const openrouterRouter = router({
         modelId: z.string().min(1),
         sessionId: z.string().optional(),
         images: z.array(imageAttachmentSchema).optional(),
+        cwd: z.string().optional(),
+        projectPath: z.string().optional(),
       }),
     )
     .subscription(({ input }) => {
@@ -394,16 +506,32 @@ export const openrouterRouter = router({
             const sessionId = input.sessionId || randomUUID()
             const startedAt = Date.now()
 
+            const systemPrompt = await buildSystemPrompt(
+              input.cwd,
+              input.projectPath,
+              input.modelId,
+            )
+
+            const priorMessages = convertStoredMessagesToModelMessages(
+              existingMessages,
+            )
+            const modelMessages: Array<{
+              role: "user" | "assistant"
+              content: any
+            }> = [
+              ...priorMessages,
+              {
+                role: "user",
+                content: buildModelMessageContent(input.prompt, input.images),
+              },
+            ]
+
             const result = streamText({
               model: provider.chat(input.modelId, {
                 usage: { include: true },
               }),
-              messages: [
-                {
-                  role: "user",
-                  content: buildModelMessageContent(input.prompt, input.images),
-                },
-              ],
+              system: systemPrompt,
+              messages: modelMessages as any,
               abortSignal: abortController.signal,
             })
 
