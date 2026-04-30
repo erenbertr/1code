@@ -70,7 +70,10 @@ import {
 } from "../atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import { AgentsSlashCommand, type SlashCommandOption } from "../commands"
-import { AgentModelSelector } from "../components/agent-model-selector"
+import {
+  AgentModelSelector,
+  type AgentProviderId,
+} from "../components/agent-model-selector"
 import { AgentSendButton } from "../components/agent-send-button"
 import type { UploadedFile, UploadedImage } from "../hooks/use-agents-file-upload"
 import {
@@ -186,7 +189,7 @@ export interface ChatInputAreaProps {
   // Context
   subChatId: string
   parentChatId: string
-  provider?: "claude-code" | "codex" | "gemini"
+  provider?: AgentProviderId
   teamId?: string
   repository?: string
   sandboxId?: string
@@ -203,9 +206,9 @@ export interface ChatInputAreaProps {
   // Callback to send message with question answer (Enter sends immediately, not to queue)
   onSubmitWithQuestionAnswer?: () => void
   // Callback to switch provider for brand new (empty) sub-chats
-  onProviderChange?: (provider: "claude-code" | "codex" | "gemini") => void
+  onProviderChange?: (provider: AgentProviderId) => void
   // Callback to continue chat with a different provider (creates new sub-chat with history)
-  onContinueWithProvider?: (provider: "claude-code" | "codex" | "gemini") => void
+  onContinueWithProvider?: (provider: AgentProviderId) => void
   // Whether this sub-chat tab is the active/visible one (prevents window-level hotkeys in background tabs)
   isActive?: boolean
 }
@@ -487,7 +490,10 @@ export const ChatInputArea = memo(function ChatInputArea({
   )
   const setLastSelectedGeminiModelId = useSetAtom(lastSelectedGeminiModelIdAtom)
   const { data: geminiAuth } = trpc.gemini.getAuthStatus.useQuery()
-  const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
+  const { data: geminiCliStatus } = trpc.gemini.getCliStatus.useQuery()
+  const isGeminiConnected =
+    (geminiAuth?.ok === true && geminiAuth.hasKey === true) ||
+    Boolean(geminiCliStatus?.installed && geminiCliStatus.loggedIn)
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
   const availableModels = useAvailableModels()
   const [selectedModel, setSelectedModel] = useState(
@@ -1639,7 +1645,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                           setSelectedSubChatGeminiModelId(model.id)
                           setLastSelectedGeminiModelId(model.id)
                         },
-                        isConnected: hasGeminiKey,
+                        isConnected: isGeminiConnected,
                       }}
                     />
                   </div>

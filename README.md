@@ -14,7 +14,6 @@ By [21st.dev](https://21st.dev) team
 - **Git Worktree Isolation** - Each chat runs in its own isolated worktree
 - **Background Agents** - Cloud sandboxes that run when your laptop sleeps
 - **Live Browser Previews** - Preview dev branches in a real browser
-- **Kanban Board** - Visualize agent sessions
 - **Built-in Git Client** - Visual staging, diffs, PR creation, push to GitHub
 - **File Viewer** - File preview with Cmd+P search and image viewer
 - **Integrated Terminal** - Sidebar or bottom panel with Cmd+J toggle

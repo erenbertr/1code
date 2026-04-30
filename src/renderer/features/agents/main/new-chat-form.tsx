@@ -334,7 +334,10 @@ export function NewChatForm({
     extendedThinkingEnabledAtom,
   )
   const { data: geminiAuth } = trpc.gemini.getAuthStatus.useQuery()
-  const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
+  const { data: geminiCliStatus } = trpc.gemini.getCliStatus.useQuery()
+  const isGeminiConnected =
+    (geminiAuth?.ok === true && geminiAuth.hasKey === true) ||
+    Boolean(geminiCliStatus?.installed && geminiCliStatus.loggedIn)
 
   const [selectedModel, setSelectedModel] = useState(
     () =>
@@ -1963,7 +1966,7 @@ export function NewChatForm({
                               if (!model) return
                               setLastSelectedGeminiModelId(model.id)
                             },
-                            isConnected: hasGeminiKey,
+                            isConnected: isGeminiConnected,
                           }}
                         />
                       </div>

@@ -170,6 +170,20 @@ function getClaudeCodeToken(): string | null {
 
     console.log("[claude-auth] ========== CLAUDE CODE AUTH DEBUG ==========")
 
+    // Prefer the token maintained by the local Claude Code CLI. The CLI refreshes
+    // this credential, while older in-app rows may contain an expired access token.
+    const localToken = getExistingClaudeToken()
+    if (localToken) {
+      console.log("[claude-auth] Using local Claude Code credentials from system")
+      console.log(
+        "[claude-auth] Token preview:",
+        localToken.slice(0, 20) + "..." + localToken.slice(-10),
+      )
+      console.log("[claude-auth] Token total length:", localToken.length)
+      console.log("[claude-auth] ============================================")
+      return localToken
+    }
+
     // First try multi-account system
     const settings = db
       .select()
@@ -189,15 +203,22 @@ function getClaudeCodeToken(): string | null {
           "[claude-auth] Using multi-account system, activeAccountId:",
           settings.activeAccountId,
         )
-        const decrypted = decryptToken(account.oauthToken)
-        console.log("[claude-auth] Token decrypted successfully")
-        console.log(
-          "[claude-auth] Token preview:",
-          decrypted.slice(0, 20) + "..." + decrypted.slice(-10),
-        )
-        console.log("[claude-auth] Token total length:", decrypted.length)
-        console.log("[claude-auth] ============================================")
-        return decrypted
+        try {
+          const decrypted = decryptToken(account.oauthToken)
+          console.log("[claude-auth] Token decrypted successfully")
+          console.log(
+            "[claude-auth] Token preview:",
+            decrypted.slice(0, 20) + "..." + decrypted.slice(-10),
+          )
+          console.log("[claude-auth] Token total length:", decrypted.length)
+          console.log("[claude-auth] ============================================")
+          return decrypted
+        } catch (error) {
+          console.warn(
+            "[claude-auth] Active account token could not be decrypted; falling back:",
+            error,
+          )
+        }
       }
 
       console.log(
@@ -225,35 +246,29 @@ function getClaudeCodeToken(): string | null {
         : null,
     )
 
-    if (!cred?.oauthToken) {
-      // Fall back to user's locally-installed Claude Code credentials
-      // (macOS Keychain "Claude Code-credentials" or ~/.claude/.credentials.json)
-      const localToken = getExistingClaudeToken()
-      if (localToken) {
-        console.log("[claude-auth] Using local Claude Code credentials from system")
+    if (cred?.oauthToken) {
+      try {
+        const decrypted = decryptToken(cred.oauthToken)
+        console.log("[claude-auth] Token decrypted successfully (legacy)")
         console.log(
           "[claude-auth] Token preview:",
-          localToken.slice(0, 20) + "..." + localToken.slice(-10),
+          decrypted.slice(0, 20) + "..." + decrypted.slice(-10),
         )
-        console.log("[claude-auth] Token total length:", localToken.length)
+        console.log("[claude-auth] Token total length:", decrypted.length)
         console.log("[claude-auth] ============================================")
-        return localToken
+
+        return decrypted
+      } catch (error) {
+        console.warn(
+          "[claude-auth] Legacy token could not be decrypted; falling back:",
+          error,
+        )
       }
-      console.log("[claude-auth] No Claude Code credentials found")
-      console.log("[claude-auth] ============================================")
-      return null
     }
 
-    const decrypted = decryptToken(cred.oauthToken)
-    console.log("[claude-auth] Token decrypted successfully (legacy)")
-    console.log(
-      "[claude-auth] Token preview:",
-      decrypted.slice(0, 20) + "..." + decrypted.slice(-10),
-    )
-    console.log("[claude-auth] Token total length:", decrypted.length)
+    console.log("[claude-auth] No Claude Code credentials found")
     console.log("[claude-auth] ============================================")
-
-    return decrypted
+    return null
   } catch (error) {
     console.error("[claude-auth] Error getting Claude Code token:", error)
     return null

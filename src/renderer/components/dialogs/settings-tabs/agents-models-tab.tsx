@@ -305,11 +305,16 @@ export function AgentsModelsTab() {
   // Gemini API key state (encrypted via Electron safeStorage; never touches localStorage)
   const { data: geminiAuth, isLoading: isGeminiAuthLoading } =
     trpc.gemini.getAuthStatus.useQuery()
+  const { data: geminiCliStatus } = trpc.gemini.getCliStatus.useQuery()
   const setGeminiKeyMutation = trpc.gemini.setApiKey.useMutation()
   const clearGeminiKeyMutation = trpc.gemini.clearApiKey.useMutation()
   const [geminiApiKey, setGeminiApiKey] = useState("")
   const [isSavingGeminiKey, setIsSavingGeminiKey] = useState(false)
   const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
+  const hasGeminiCliAuth = Boolean(
+    geminiCliStatus?.installed && geminiCliStatus.loggedIn,
+  )
+  const isGeminiConnected = hasGeminiKey || hasGeminiCliAuth
   const geminiMaskedKey =
     geminiAuth?.ok === true && geminiAuth.hasKey === true
       ? geminiAuth.maskedKey
@@ -833,7 +838,9 @@ export function AgentsModelsTab() {
             <p className="text-xs text-muted-foreground">
               {hasGeminiKey
                 ? `API key stored encrypted via OS keychain · ${geminiMaskedKey}`
-                : "Connect a Google AI Studio API key (aistudio.google.com/apikey)"}
+                : hasGeminiCliAuth
+                  ? `Gemini CLI connected via ${geminiCliStatus?.authSource ?? "local auth"}`
+                  : "Connect a Google AI Studio API key or run `gemini` to sign in"}
             </p>
           </div>
         </div>
@@ -843,14 +850,14 @@ export function AgentsModelsTab() {
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <Label className="text-sm font-medium">Gemini API Key</Label>
-                {hasGeminiKey && (
+                {isGeminiConnected && (
                   <Badge variant="secondary" className="text-xs">
                     Active
                   </Badge>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Required to use Gemini models
+                Gemini CLI OAuth is supported; an API key is optional
               </p>
             </div>
             <div className="flex-shrink-0 w-80 flex items-center gap-2">

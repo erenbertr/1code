@@ -40,7 +40,7 @@ const GeminiIcon = ({ className }: { className?: string }) => (
   </svg>
 )
 
-export type AgentProviderId = "claude-code" | "codex" | "gemini"
+export type AgentProviderId = "claude-code" | "codex" | "gemini" | "openrouter"
 
 type ClaudeModelOption = {
   id: string

@@ -32,7 +32,6 @@ const SHORTCUT_TO_ACTION_MAP: Record<ShortcutActionId, string> = {
   "search-workspaces": "search-workspaces",
   "archive-workspace": "archive-workspace",
   "quick-switch-workspaces": "quick-switch-workspaces",
-  "open-kanban": "open-kanban",
   "new-agent": "create-new-agent",
   "new-agent-split": "create-new-agent-split",
   "search-chats": "search-chats",
@@ -116,8 +115,6 @@ export interface AgentsHotkeysManagerConfig {
   toggleChatSearch?: () => void
   selectedChatId?: string | null
   customHotkeysConfig?: CustomHotkeysConfig
-  // Feature flags
-  betaKanbanEnabled?: boolean
 }
 
 export interface UseAgentsHotkeysOptions {
@@ -275,17 +272,6 @@ export function useAgentsHotkeys(
         return
       }
 
-      // Check open-kanban hotkey (only if feature is enabled)
-      if (config.betaKanbanEnabled) {
-        const openKanbanHotkey = getHotkeyForAction("open-kanban")
-        if (openKanbanHotkey && matchesHotkey(e, openKanbanHotkey)) {
-          e.preventDefault()
-          e.stopPropagation()
-          handleHotkeyAction("open-kanban")
-          return
-        }
-      }
-
       // Check new-workspace alt hotkey ("C") — only when not in input
       if (!isInputFocused && matchesHotkey(e, "c")) {
         e.preventDefault()
@@ -297,7 +283,7 @@ export function useAgentsHotkeys(
 
     window.addEventListener("keydown", handleKeyDown, true)
     return () => window.removeEventListener("keydown", handleKeyDown, true)
-  }, [enabled, handleHotkeyAction, getHotkeyForAction, config.betaKanbanEnabled])
+  }, [enabled, handleHotkeyAction, getHotkeyForAction])
 
   // General hotkey handler for remaining actions
   const actionsWithHotkeys = useMemo(

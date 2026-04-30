@@ -36,6 +36,7 @@ type GeminiProviderSession = {
   provider: ACPProvider
   cwd: string
   binaryPath: string
+  modelId: string
 }
 
 const activeStreams = new Map<string, ActiveGeminiStream>()
@@ -84,14 +85,22 @@ function resolveGeminiBinaryPath(): string | null {
 
 function buildGeminiSpawnEnv(): Record<string, string> {
   const env: Record<string, string> = {}
-  try {
-    Object.assign(env, getClaudeShellEnvironment())
-  } catch {
-    // fall back to process.env
-  }
+
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[key] = value
+    if (typeof value === "string") env[key] = value
   }
+
+  try {
+    // Prefer the user's login-shell environment so Gemini can find Homebrew,
+    // npm, rg, and MCP dependencies when the app is launched from Finder.
+    const shellEnv = getClaudeShellEnvironment()
+    for (const [key, value] of Object.entries(shellEnv)) {
+      if (typeof value === "string") env[key] = value
+    }
+  } catch {
+    // process.env was already copied above
+  }
+
   return env
 }
 
@@ -99,6 +108,7 @@ function getOrCreateProvider(params: {
   subChatId: string
   cwd: string
   binaryPath: string
+  modelId: string
   existingSessionId?: string
 }): ACPProvider {
   const existing = providerSessions.get(params.subChatId)
@@ -106,7 +116,8 @@ function getOrCreateProvider(params: {
   if (
     existing &&
     existing.cwd === params.cwd &&
-    existing.binaryPath === params.binaryPath
+    existing.binaryPath === params.binaryPath &&
+    existing.modelId === params.modelId
   ) {
     return existing.provider
   }
@@ -120,6 +131,7 @@ function getOrCreateProvider(params: {
     command: params.binaryPath,
     args: ["--acp"],
     env: buildGeminiSpawnEnv(),
+    authMethodId: "oauth-personal",
     session: {
       cwd: params.cwd,
       mcpServers: [],
@@ -134,6 +146,7 @@ function getOrCreateProvider(params: {
     provider,
     cwd: params.cwd,
     binaryPath: params.binaryPath,
+    modelId: params.modelId,
   })
 
   return provider
@@ -230,17 +243,72 @@ function buildUserParts(
   return parts
 }
 
-function humanizeGeminiError(rawMessage: string): string {
+const GEMINI_CAPACITY_ERROR_PATTERN =
+  /MODEL_CAPACITY_EXHAUSTED|No capacity available for model|RESOURCE_EXHAUSTED/i
+
+function isGeminiCapacityError(rawMessage: string): boolean {
+  return GEMINI_CAPACITY_ERROR_PATTERN.test(rawMessage)
+}
+
+function getGeminiFallbackModelIds(modelId: string): string[] {
+  const fallbackByModel: Record<string, string[]> = {
+    "gemini-2.5-pro": [
+      "auto-gemini-2.5",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "auto-gemini-3",
+      "gemini-3-flash-preview",
+    ],
+    "gemini-3.1-pro-preview": [
+      "auto-gemini-3",
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+      "auto-gemini-2.5",
+      "gemini-2.5-flash",
+    ],
+    "auto-gemini-3": [
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+      "auto-gemini-2.5",
+      "gemini-2.5-flash",
+    ],
+    "auto-gemini-2.5": [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "auto-gemini-3",
+      "gemini-3-flash-preview",
+    ],
+    "gemini-2.5-flash": [
+      "gemini-2.5-flash-lite",
+      "auto-gemini-2.5",
+      "auto-gemini-3",
+    ],
+    "gemini-3-flash-preview": [
+      "gemini-3.1-flash-lite-preview",
+      "auto-gemini-3",
+      "auto-gemini-2.5",
+    ],
+  }
+
+  const fallbacks = fallbackByModel[modelId] ?? [
+    "auto-gemini-3",
+    "auto-gemini-2.5",
+    "gemini-2.5-flash",
+  ]
+
+  return [...new Set(fallbacks.filter((fallback) => fallback !== modelId))]
+}
+
+function humanizeGeminiError(rawMessage: string, triedModels?: string[]): string {
   if (!rawMessage) return "Stream failed"
 
-  if (
-    /MODEL_CAPACITY_EXHAUSTED|No capacity available for model|RESOURCE_EXHAUSTED/i.test(
-      rawMessage,
-    )
-  ) {
+  if (isGeminiCapacityError(rawMessage)) {
     const modelMatch = rawMessage.match(/model ([\w.-]+)/i)
     const which = modelMatch ? `"${modelMatch[1]}"` : "this Gemini model"
-    return `Google is currently at capacity for ${which}. Try Gemini 3 Flash, Gemini 2.5 Pro, or "Gemini 2.5" auto from the model picker, or retry in a few minutes.`
+    const tried = triedModels?.length
+      ? ` Tried: ${triedModels.join(", ")}.`
+      : ""
+    return `Google is currently at capacity for ${which}.${tried} Try an Auto or Flash Gemini model, or retry in a few minutes.`
   }
 
   if (/EPIPE|stream prematurely closed|aborted/i.test(rawMessage)) {
@@ -252,6 +320,14 @@ function humanizeGeminiError(rawMessage: string): string {
   }
 
   return rawMessage
+}
+
+function isGeminiPreludeChunk(chunk: any): boolean {
+  return (
+    chunk?.type === "start" ||
+    chunk?.type === "start-step" ||
+    chunk?.type === "message-metadata"
+  )
 }
 
 function buildModelMessageContent(
@@ -290,10 +366,17 @@ export const geminiRouter = router({
     const binaryPath = resolveGeminiBinaryPath()
     const geminiHome = join(homedir(), ".gemini")
     const homeExists = existsSync(geminiHome)
+    const hasOauthCreds = existsSync(join(geminiHome, "oauth_creds.json"))
+    const hasStoredApiKey = Boolean(loadGeminiApiKey())
     return {
       installed: Boolean(binaryPath),
       binaryPath,
-      loggedIn: homeExists,
+      loggedIn: hasOauthCreds || hasStoredApiKey,
+      authSource: hasOauthCreds
+        ? ("oauth" as const)
+        : hasStoredApiKey
+          ? ("api-key" as const)
+          : null,
       geminiHome: homeExists ? geminiHome : null,
     }
   }),
@@ -456,33 +539,13 @@ export const geminiRouter = router({
 
             const cwd = input.cwd && input.cwd.trim() ? input.cwd : process.cwd()
 
-            const provider = getOrCreateProvider({
-              subChatId: input.subChatId,
-              cwd,
-              binaryPath,
-              existingSessionId: input.forceNewSession
-                ? undefined
-                : input.sessionId ?? getLastSessionId(existingMessages),
-            })
-
             const startedAt = Date.now()
+            let providerSessionIdForResume =
+              input.forceNewSession
+                ? undefined
+                : input.sessionId ?? getLastSessionId(existingMessages)
             let latestSessionId =
-              provider.getSessionId() ||
-              input.sessionId ||
-              getLastSessionId(existingMessages) ||
-              randomUUID()
-
-            const result = streamText({
-              model: provider.languageModel(input.modelId),
-              messages: [
-                {
-                  role: "user",
-                  content: buildModelMessageContent(input.prompt, input.images),
-                },
-              ],
-              tools: provider.tools,
-              abortSignal: abortController.signal,
-            })
+              providerSessionIdForResume || randomUUID()
 
             const cleanAssistantMessageForPersistence = (message: any) => {
               if (!message || message.role !== "assistant") return message
@@ -494,118 +557,265 @@ export const geminiRouter = router({
               return { ...message, parts: cleanedParts }
             }
 
-            const uiStream = result.toUIMessageStream({
-              originalMessages: messagesForStream,
-              generateMessageId: () => crypto.randomUUID(),
-              messageMetadata: ({ part }) => {
-                const sessionId = provider.getSessionId() || latestSessionId
-                if (sessionId) latestSessionId = sessionId
+            const streamWithModel = async (
+              modelId: string,
+            ): Promise<{
+              ok: boolean
+              errorText?: string
+              capacityError?: boolean
+              emittedContent?: boolean
+            }> => {
+              const provider = getOrCreateProvider({
+                subChatId: input.subChatId,
+                cwd,
+                binaryPath,
+                modelId,
+                existingSessionId: providerSessionIdForResume,
+              })
 
-                if (part.type === "finish") {
-                  return {
-                    model: input.modelId,
-                    sessionId,
-                    durationMs: Date.now() - startedAt,
-                    resultSubtype:
-                      part.finishReason === "error" ? "error" : "success",
-                  }
-                }
-                return { model: input.modelId, sessionId }
-              },
-              onFinish: async ({ responseMessage, isContinuation }) => {
-                try {
-                  const cleaned =
-                    cleanAssistantMessageForPersistence(responseMessage)
-                  if (!cleaned) {
-                    persistSubChatMessages(messagesForStream)
-                    return
-                  }
-                  const messagesToPersist = [
-                    ...(isContinuation
-                      ? messagesForStream.slice(0, -1)
-                      : messagesForStream),
-                    cleaned,
-                  ]
-                  persistSubChatMessages(messagesToPersist)
-                } catch (error) {
-                  console.error("[gemini] Failed to persist messages:", error)
-                }
-              },
-              onError: (error) =>
-                humanizeGeminiError(
-                  error instanceof Error ? error.message : String(error ?? ""),
-                ),
-            })
-
-            const reader = uiStream.getReader()
-            let pendingFinishChunk: any | null = null
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-
-              if (value?.type === "error") {
-                const rawText =
-                  typeof (value as any).errorText === "string"
-                    ? (value as any).errorText
-                    : "Stream failed"
-                safeEmit({
-                  ...value,
-                  errorText: humanizeGeminiError(rawText),
-                })
-                continue
+              const activeProviderSessionId = provider.getSessionId()
+              if (activeProviderSessionId) {
+                latestSessionId = activeProviderSessionId
+                providerSessionIdForResume = activeProviderSessionId
               }
-
-              if (value?.type === "finish") {
-                pendingFinishChunk = value
-                continue
-              }
-
-              safeEmit(value)
-            }
-
-            try {
-              const usage = await result.usage
-              const inputTokens = usage?.inputTokens ?? 0
-              const outputTokens = usage?.outputTokens ?? 0
-              const totalTokens =
-                usage?.totalTokens ?? inputTokens + outputTokens
-
-              if (inputTokens || outputTokens) {
-                try {
-                  await appendGeminiUsage({
-                    sessionId: latestSessionId,
-                    modelId: input.modelId,
-                    inputTokens,
-                    outputTokens,
-                    totalTokens,
-                    timestamp: new Date().toISOString(),
-                  })
-                } catch (error) {
-                  console.error("[gemini] failed to append usage", error)
-                }
-
-                safeEmit({
-                  type: "message-metadata",
-                  messageMetadata: {
-                    model: input.modelId,
-                    sessionId: latestSessionId,
-                    inputTokens,
-                    outputTokens,
-                    totalTokens,
-                    durationMs: Date.now() - startedAt,
+              const model = provider.languageModel(modelId)
+              const result = streamText({
+                model,
+                messages: [
+                  {
+                    role: "user",
+                    content: buildModelMessageContent(
+                      input.prompt,
+                      input.images,
+                    ),
                   },
-                })
+                ],
+                tools: provider.tools,
+                abortSignal: abortController.signal,
+              })
+
+              const uiStream = result.toUIMessageStream({
+                originalMessages: messagesForStream,
+                generateMessageId: () => crypto.randomUUID(),
+                messageMetadata: ({ part }) => {
+                  const sessionId = provider.getSessionId() || latestSessionId
+                  if (sessionId) latestSessionId = sessionId
+
+                  const baseMetadata = {
+                    model: modelId,
+                    sessionId,
+                    ...(modelId !== input.modelId
+                      ? { requestedModel: input.modelId }
+                      : {}),
+                  }
+
+                  if (part.type === "finish") {
+                    return {
+                      ...baseMetadata,
+                      durationMs: Date.now() - startedAt,
+                      resultSubtype:
+                        part.finishReason === "error" ? "error" : "success",
+                    }
+                  }
+                  return baseMetadata
+                },
+                onFinish: async ({ responseMessage, isContinuation }) => {
+                  try {
+                    const cleaned =
+                      cleanAssistantMessageForPersistence(responseMessage)
+                    if (!cleaned) {
+                      persistSubChatMessages(messagesForStream)
+                      return
+                    }
+                    const messagesToPersist = [
+                      ...(isContinuation
+                        ? messagesForStream.slice(0, -1)
+                        : messagesForStream),
+                      cleaned,
+                    ]
+                    persistSubChatMessages(messagesToPersist)
+                  } catch (error) {
+                    console.error(
+                      "[gemini] Failed to persist messages:",
+                      error,
+                    )
+                  }
+                },
+                onError: (error) =>
+                  error instanceof Error
+                    ? error.message
+                    : String(error ?? "Stream failed"),
+              })
+
+              const reader = uiStream.getReader()
+              let pendingFinishChunk: any | null = null
+              let emittedContent = false
+              const preludeChunks: any[] = []
+              const flushPrelude = () => {
+                for (const chunk of preludeChunks) {
+                  safeEmit(chunk)
+                }
+                preludeChunks.length = 0
               }
-            } catch (error) {
-              console.error("[gemini] failed to read usage", error)
+
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                if (value?.type === "error") {
+                  const rawText =
+                    typeof (value as any).errorText === "string"
+                      ? (value as any).errorText
+                      : "Stream failed"
+                  const capacityError = isGeminiCapacityError(rawText)
+
+                  if (capacityError && !emittedContent) {
+                    const sessionId = provider.getSessionId()
+                    if (sessionId) {
+                      latestSessionId = sessionId
+                      providerSessionIdForResume = sessionId
+                    }
+                    return {
+                      ok: false,
+                      errorText: rawText,
+                      capacityError: true,
+                      emittedContent: false,
+                    }
+                  }
+
+                  flushPrelude()
+                  safeEmit({
+                    ...value,
+                    errorText: humanizeGeminiError(rawText),
+                  })
+                  return {
+                    ok: false,
+                    errorText: rawText,
+                    capacityError,
+                    emittedContent: true,
+                  }
+                }
+
+                if (value?.type === "finish") {
+                  pendingFinishChunk = value
+                  continue
+                }
+
+                if (!emittedContent && isGeminiPreludeChunk(value)) {
+                  preludeChunks.push(value)
+                  continue
+                }
+
+                flushPrelude()
+                emittedContent = true
+                safeEmit(value)
+              }
+
+              flushPrelude()
+
+              const sessionId = provider.getSessionId()
+              if (sessionId) {
+                latestSessionId = sessionId
+                providerSessionIdForResume = sessionId
+              }
+
+              try {
+                const usage = await result.usage
+                const inputTokens = usage?.inputTokens ?? 0
+                const outputTokens = usage?.outputTokens ?? 0
+                const totalTokens =
+                  usage?.totalTokens ?? inputTokens + outputTokens
+
+                if (inputTokens || outputTokens) {
+                  try {
+                    await appendGeminiUsage({
+                      sessionId: latestSessionId,
+                      modelId,
+                      inputTokens,
+                      outputTokens,
+                      totalTokens,
+                      timestamp: new Date().toISOString(),
+                    })
+                  } catch (error) {
+                    console.error("[gemini] failed to append usage", error)
+                  }
+
+                  safeEmit({
+                    type: "message-metadata",
+                    messageMetadata: {
+                      model: modelId,
+                      ...(modelId !== input.modelId
+                        ? { requestedModel: input.modelId }
+                        : {}),
+                      sessionId: latestSessionId,
+                      inputTokens,
+                      outputTokens,
+                      totalTokens,
+                      durationMs: Date.now() - startedAt,
+                    },
+                  })
+                }
+              } catch (error) {
+                console.error("[gemini] failed to read usage", error)
+              }
+
+              if (pendingFinishChunk) {
+                safeEmit(pendingFinishChunk)
+              } else {
+                safeEmit({ type: "finish" })
+              }
+
+              return { ok: true }
             }
 
-            if (pendingFinishChunk) {
-              safeEmit(pendingFinishChunk)
-            } else {
+            const attemptedModels = [
+              input.modelId,
+              ...getGeminiFallbackModelIds(input.modelId),
+            ]
+            let lastCapacityError: string | undefined
+
+            for (let index = 0; index < attemptedModels.length; index++) {
+              const modelId = attemptedModels[index]!
+              const result = await streamWithModel(modelId)
+              if (result.ok) {
+                safeComplete()
+                return
+              }
+
+              if (
+                result.capacityError &&
+                !result.emittedContent &&
+                !abortController.signal.aborted &&
+                index < attemptedModels.length - 1
+              ) {
+                lastCapacityError = result.errorText
+                console.warn(
+                  `[gemini] ${modelId} is at capacity; retrying with ${attemptedModels[index + 1]}`,
+                )
+                cleanupProvider(input.subChatId)
+                continue
+              }
+
+              safeEmit({
+                type: "error",
+                errorText: humanizeGeminiError(
+                  result.errorText || "Stream failed",
+                  attemptedModels.slice(0, index + 1),
+                ),
+              })
               safeEmit({ type: "finish" })
+              safeComplete()
+              return
             }
 
+            safeEmit({
+              type: "error",
+              errorText: humanizeGeminiError(
+                lastCapacityError || "No capacity available for Gemini",
+                attemptedModels,
+              ),
+            })
+            safeEmit({ type: "finish" })
             safeComplete()
           } catch (error) {
             const rawMessage =
