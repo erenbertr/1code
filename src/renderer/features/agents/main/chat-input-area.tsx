@@ -49,6 +49,7 @@ import {
   hiddenModelsAtom,
   normalizeCodexApiKey,
   normalizeCustomClaudeConfig,
+  pinnedOpenRouterModelsAtom,
   selectedOllamaModelAtom,
   showOfflineModeFeaturesAtom,
 } from "../../../lib/atoms"
@@ -59,11 +60,13 @@ import {
   lastSelectedCodexThinkingAtom,
   lastSelectedGeminiModelIdAtom,
   lastSelectedModelIdAtom,
+  lastSelectedOpenRouterModelIdAtom,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
   subChatGeminiModelIdAtomFamily,
   subChatModelIdAtomFamily,
   subChatModeAtomFamily,
+  subChatOpenRouterModelIdAtomFamily,
   getNextMode,
   type AgentMode,
   type SubChatFileChange,
@@ -494,6 +497,32 @@ export const ChatInputArea = memo(function ChatInputArea({
   const isGeminiConnected =
     (geminiAuth?.ok === true && geminiAuth.hasKey === true) ||
     Boolean(geminiCliStatus?.installed && geminiCliStatus.loggedIn)
+
+  // OpenRouter
+  const subChatOpenRouterModelIdAtom = useMemo(
+    () => subChatOpenRouterModelIdAtomFamily(subChatId),
+    [subChatId],
+  )
+  const [
+    selectedSubChatOpenRouterModelId,
+    setSelectedSubChatOpenRouterModelId,
+  ] = useAtom(subChatOpenRouterModelIdAtom)
+  const setLastSelectedOpenRouterModelId = useSetAtom(
+    lastSelectedOpenRouterModelIdAtom,
+  )
+  const { data: openRouterAuth } = trpc.openrouter.getAuthStatus.useQuery()
+  const isOpenRouterConnected =
+    openRouterAuth?.ok === true && openRouterAuth.hasKey === true
+  const pinnedOpenRouterModels = useAtomValue(pinnedOpenRouterModelsAtom)
+  const { data: openRouterCatalog } = trpc.openrouter.listModels.useQuery(
+    undefined,
+    {
+      enabled: isOpenRouterConnected && pinnedOpenRouterModels.length > 0,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  )
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
   const availableModels = useAvailableModels()
   const [selectedModel, setSelectedModel] = useState(
@@ -543,6 +572,29 @@ export const ChatInputArea = memo(function ChatInputArea({
     () => GEMINI_MODELS.filter((model) => !hiddenModels.includes(model.id)),
     [hiddenModels],
   )
+  const openRouterUiModels = useMemo(() => {
+    if (!isOpenRouterConnected) return []
+    const catalogIndex = new Map(
+      openRouterCatalog?.available
+        ? openRouterCatalog.models.map((m) => [m.id, m.name] as const)
+        : [],
+    )
+    return pinnedOpenRouterModels
+      .filter((id) => !hiddenModels.includes(id))
+      .map((id) => ({ id, name: catalogIndex.get(id) ?? id }))
+  }, [isOpenRouterConnected, openRouterCatalog, pinnedOpenRouterModels, hiddenModels])
+  const selectedOpenRouterModel = useMemo(() => {
+    if (openRouterUiModels.length === 0) {
+      return { id: "", name: "" }
+    }
+    return (
+      openRouterUiModels.find(
+        (m) => m.id === selectedSubChatOpenRouterModelId,
+      ) ||
+      openRouterUiModels[0] ||
+      { id: "", name: "" }
+    )
+  }, [openRouterUiModels, selectedSubChatOpenRouterModelId])
   const selectedGeminiModel = useMemo(
     () =>
       geminiUiModels.find((m) => m.id === selectedSubChatGeminiModelId) ||
@@ -632,6 +684,10 @@ export const ChatInputArea = memo(function ChatInputArea({
       return selectedGeminiModel.name
     }
 
+    if (provider === "openrouter") {
+      return selectedOpenRouterModel.name || "Select model"
+    }
+
     if (availableModels.isOffline && availableModels.hasOllama) {
       return currentOllamaModel || "Ollama"
     }
@@ -649,6 +705,7 @@ export const ChatInputArea = memo(function ChatInputArea({
     provider,
     selectedCodexModel.name,
     selectedGeminiModel.name,
+    selectedOpenRouterModel.name,
     availableModels.isOffline,
     availableModels.hasOllama,
     currentOllamaModel,
@@ -1646,6 +1703,17 @@ export const ChatInputArea = memo(function ChatInputArea({
                           setLastSelectedGeminiModelId(model.id)
                         },
                         isConnected: isGeminiConnected,
+                      }}
+                      openrouter={{
+                        models: openRouterUiModels,
+                        selectedModelId: selectedOpenRouterModel.id,
+                        onSelectModel: (modelId) => {
+                          const model = openRouterUiModels.find((m) => m.id === modelId)
+                          if (!model) return
+                          setSelectedSubChatOpenRouterModelId(model.id)
+                          setLastSelectedOpenRouterModelId(model.id)
+                        },
+                        isConnected: isOpenRouterConnected,
                       }}
                     />
                   </div>
