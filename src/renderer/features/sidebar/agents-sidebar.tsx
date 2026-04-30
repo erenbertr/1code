@@ -88,6 +88,7 @@ import {
   archivePopoverOpenAtom,
   agentsDebugModeAtom,
   selectedProjectAtom,
+  lastChatIdPerProjectAtom,
   justCreatedIdsAtom,
   undoStackAtom,
   pendingUserQuestionsAtom,
@@ -1519,6 +1520,11 @@ export function AgentsSidebar({
   // Desktop: use selectedProject instead of teams
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
 
+  // Map of projectId → last opened chat ID. Restored on project switch.
+  const [lastChatIdPerProject, setLastChatIdPerProject] = useAtom(
+    lastChatIdPerProjectAtom,
+  )
+
   // Get tRPC utils early — needed for cache invalidation in callbacks below
   const utils = trpc.useUtils()
 
@@ -1836,24 +1842,70 @@ export function AgentsSidebar({
     },
   })
 
-  // Reset selected chat when project changes (but not on initial load)
+  // Restore previously focused chat when switching projects (and remember the
+  // current chat for the project we are leaving). On initial mount we don't
+  // touch the selection so the persisted selectedChatId can hydrate first.
   const prevProjectIdRef = useRef<string | null | undefined>(undefined)
   useEffect(() => {
-    // Skip on initial mount (prevProjectIdRef is undefined)
+    const nextProjectId = selectedProject?.id ?? null
+
+    // Skip on initial mount — let persisted selectedChatId hydrate first.
     if (prevProjectIdRef.current === undefined) {
-      prevProjectIdRef.current = selectedProject?.id ?? null
+      prevProjectIdRef.current = nextProjectId
       return
     }
-    // Only reset if project actually changed from a real value (not from null/initial load)
-    if (
-      prevProjectIdRef.current !== null &&
-      prevProjectIdRef.current !== selectedProject?.id &&
-      selectedChatId
-    ) {
-      setSelectedChatId(null)
+
+    if (prevProjectIdRef.current === nextProjectId) {
+      return
     }
-    prevProjectIdRef.current = selectedProject?.id ?? null
+
+    // Persist the chat that was open in the project we are leaving so we can
+    // jump back to it later.
+    const prevProjectId = prevProjectIdRef.current
+    if (prevProjectId && selectedChatId) {
+      setLastChatIdPerProject((prev) =>
+        prev[prevProjectId] === selectedChatId
+          ? prev
+          : { ...prev, [prevProjectId]: selectedChatId },
+      )
+    }
+
+    // Restore the chat previously focused for the new project (if any).
+    const restoredChatId = nextProjectId
+      ? lastChatIdPerProject[nextProjectId] ?? null
+      : null
+    setSelectedChatId(restoredChatId)
+
+    prevProjectIdRef.current = nextProjectId
   }, [selectedProject?.id]) // Don't include selectedChatId in deps to avoid loops
+
+  // Continuously record the last chat opened within the active project so a
+  // future project switch can restore it.
+  useEffect(() => {
+    const projectId = selectedProject?.id
+    if (!projectId || !selectedChatId) return
+    if (lastChatIdPerProject[projectId] === selectedChatId) return
+    setLastChatIdPerProject((prev) => ({ ...prev, [projectId]: selectedChatId }))
+  }, [selectedProject?.id, selectedChatId, lastChatIdPerProject, setLastChatIdPerProject])
+
+  // Drop stale chat IDs when their parent project no longer references them
+  // (e.g. the chat was archived). Runs whenever the chats list refreshes.
+  useEffect(() => {
+    if (!localChats) return
+    const liveChatIds = new Set(localChats.map((chat) => chat.id))
+    setLastChatIdPerProject((prev) => {
+      let changed = false
+      const next: Record<string, string> = {}
+      for (const [projectId, chatId] of Object.entries(prev)) {
+        if (liveChatIds.has(chatId)) {
+          next[projectId] = chatId
+        } else {
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [localChats, setLastChatIdPerProject])
 
   // Load pinned IDs from localStorage when project changes
   useEffect(() => {
