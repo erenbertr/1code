@@ -34,6 +34,7 @@ import {
   lastSelectedCodexModelIdAtom,
   lastSelectedCodexThinkingAtom,
   lastSelectedGeminiModelIdAtom,
+  lastSelectedOpenRouterModelIdAtom,
   lastSelectedBranchesAtom,
   lastSelectedModelIdAtom,
   lastSelectedRepoAtom,
@@ -62,6 +63,7 @@ import {
   hiddenModelsAtom,
   normalizeCodexApiKey,
   normalizeCustomClaudeConfig,
+  pinnedOpenRouterModelsAtom,
   showOfflineModeFeaturesAtom,
   selectedOllamaModelAtom,
   customHotkeysAtom,
@@ -169,6 +171,7 @@ const agents = [
   { id: "cursor", name: "Cursor CLI", disabled: true },
   { id: "codex", name: "OpenAI Codex" },
   { id: "gemini", name: "Google Gemini" },
+  { id: "openrouter", name: "OpenRouter" },
 ]
 
 interface NewChatFormProps {
@@ -339,6 +342,22 @@ export function NewChatForm({
     (geminiAuth?.ok === true && geminiAuth.hasKey === true) ||
     Boolean(geminiCliStatus?.installed && geminiCliStatus.loggedIn)
 
+  const [lastSelectedOpenRouterModelId, setLastSelectedOpenRouterModelId] =
+    useAtom(lastSelectedOpenRouterModelIdAtom)
+  const pinnedOpenRouterModels = useAtomValue(pinnedOpenRouterModelsAtom)
+  const { data: openRouterAuth } = trpc.openrouter.getAuthStatus.useQuery()
+  const isOpenRouterConnected =
+    openRouterAuth?.ok === true && openRouterAuth.hasKey === true
+  const { data: openRouterCatalog } = trpc.openrouter.listModels.useQuery(
+    undefined,
+    {
+      enabled: isOpenRouterConnected && pinnedOpenRouterModels.length > 0,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  )
+
   const [selectedModel, setSelectedModel] = useState(
     () =>
       availableModels.models.find((m) => m.id === lastSelectedModelId) || availableModels.models[0],
@@ -386,6 +405,28 @@ export function NewChatForm({
     [geminiUiModels, lastSelectedGeminiModelId],
   )
 
+  const openRouterUiModels = useMemo(() => {
+    if (!isOpenRouterConnected) return []
+    const catalogIndex = new Map(
+      openRouterCatalog?.available
+        ? openRouterCatalog.models.map((m) => [m.id, m.name] as const)
+        : [],
+    )
+    return pinnedOpenRouterModels
+      .filter((id) => !hiddenModels.includes(id))
+      .map((id) => ({ id, name: catalogIndex.get(id) ?? id }))
+  }, [isOpenRouterConnected, openRouterCatalog, pinnedOpenRouterModels, hiddenModels])
+  const selectedOpenRouterModel = useMemo(() => {
+    if (openRouterUiModels.length === 0) {
+      return { id: "", name: "" }
+    }
+    return (
+      openRouterUiModels.find((m) => m.id === lastSelectedOpenRouterModelId) ||
+      openRouterUiModels[0] ||
+      { id: "", name: "" }
+    )
+  }, [openRouterUiModels, lastSelectedOpenRouterModelId])
+
   const selectedCodexThinking = useMemo<CodexThinkingLevel>(() => {
     if (
       selectedCodexModel.thinkings.includes(
@@ -426,12 +467,16 @@ export function NewChatForm({
     if (selectedAgent.id === "gemini") {
       return selectedGeminiModel.id
     }
+    if (selectedAgent.id === "openrouter") {
+      return selectedOpenRouterModel.id || (selectedModel?.id ?? "opus")
+    }
     return selectedModel?.id ?? "opus"
   }, [
     selectedAgent.id,
     selectedCodexModel.id,
     selectedCodexThinking,
     selectedGeminiModel.id,
+    selectedOpenRouterModel.id,
     selectedModel?.id,
   ])
 
@@ -446,6 +491,10 @@ export function NewChatForm({
 
     if (selectedAgent.id === "gemini") {
       return selectedGeminiModel.name
+    }
+
+    if (selectedAgent.id === "openrouter") {
+      return selectedOpenRouterModel.name || "Select model"
     }
 
     if (availableModels.isOffline && availableModels.hasOllama) {
@@ -465,6 +514,7 @@ export function NewChatForm({
     selectedAgent.id,
     selectedCodexModel.name,
     selectedGeminiModel.name,
+    selectedOpenRouterModel.name,
     availableModels.isOffline,
     availableModels.hasOllama,
     currentOllamaModel,
@@ -1900,14 +1950,16 @@ export function NewChatForm({
                         <AgentModelSelector
                           open={isModelDropdownOpen}
                           onOpenChange={setIsModelDropdownOpen}
-                          selectedAgentId={selectedAgent.id as "claude-code" | "codex" | "gemini"}
+                          selectedAgentId={selectedAgent.id as "claude-code" | "codex" | "gemini" | "openrouter"}
                           onSelectedAgentIdChange={(provider) => {
                             if (provider === "claude-code") {
                               setSelectedAgent(claudeAgent)
                             } else if (provider === "codex") {
                               setSelectedAgent(enabledAgents.find((agent) => agent.id === "codex") || fallbackAgent)
-                            } else {
+                            } else if (provider === "gemini") {
                               setSelectedAgent(enabledAgents.find((agent) => agent.id === "gemini") || fallbackAgent)
+                            } else if (provider === "openrouter") {
+                              setSelectedAgent(enabledAgents.find((agent) => agent.id === "openrouter") || fallbackAgent)
                             }
                             setLastSelectedAgentId(provider)
                           }}
@@ -1967,6 +2019,16 @@ export function NewChatForm({
                               setLastSelectedGeminiModelId(model.id)
                             },
                             isConnected: isGeminiConnected,
+                          }}
+                          openrouter={{
+                            models: openRouterUiModels,
+                            selectedModelId: selectedOpenRouterModel.id,
+                            onSelectModel: (modelId) => {
+                              const model = openRouterUiModels.find((m) => m.id === modelId)
+                              if (!model) return
+                              setLastSelectedOpenRouterModelId(model.id)
+                            },
+                            isConnected: isOpenRouterConnected,
                           }}
                         />
                       </div>
