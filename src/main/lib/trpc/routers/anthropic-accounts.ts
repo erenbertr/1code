@@ -2,10 +2,15 @@ import { eq, sql } from "drizzle-orm"
 import { safeStorage } from "electron"
 import { z } from "zod"
 import { getAuthManager } from "../../../index"
+import { getExistingClaudeToken } from "../../claude-token"
 import { anthropicAccounts, anthropicSettings, claudeCodeCredentials, getDatabase } from "../../db"
 import { createId } from "../../db/utils"
 import { publicProcedure, router } from "../index"
 import { clearClaudeCaches } from "./claude"
+
+const SYSTEM_KEYCHAIN_ACCOUNT_ID = "system-keychain"
+
+type AccountSource = "db" | "legacy" | "system"
 
 /**
  * Encrypt token using Electron's safeStorage
@@ -58,6 +63,7 @@ export const anthropicAccountsRouter = router({
           ...acc,
           connectedAt: acc.connectedAt?.toISOString() ?? null,
           lastUsedAt: acc.lastUsedAt?.toISOString() ?? null,
+          source: "db" as AccountSource,
         }))
       }
     } catch {
@@ -79,10 +85,25 @@ export const anthropicAccountsRouter = router({
           displayName: "Anthropic Account",
           connectedAt: legacyCred.connectedAt?.toISOString() ?? null,
           lastUsedAt: null,
+          source: "legacy" as AccountSource,
         }]
       }
     } catch {
       // Legacy table also doesn't exist
+    }
+
+    // Final fallback: surface the local Claude Code CLI credential
+    // (macOS Keychain / ~/.claude/.credentials.json) so the user sees
+    // an active connection in Settings even though it's not in our DB.
+    if (getExistingClaudeToken()?.trim()) {
+      return [{
+        id: SYSTEM_KEYCHAIN_ACCOUNT_ID,
+        email: null,
+        displayName: "Local Claude Code",
+        connectedAt: null,
+        lastUsedAt: null,
+        source: "system" as AccountSource,
+      }]
     }
 
     return []
@@ -117,6 +138,7 @@ export const anthropicAccountsRouter = router({
           return {
             ...account,
             connectedAt: account.connectedAt?.toISOString() ?? null,
+            source: "db" as AccountSource,
           }
         }
       }
@@ -138,10 +160,22 @@ export const anthropicAccountsRouter = router({
           email: null,
           displayName: "Anthropic Account",
           connectedAt: legacyCred.connectedAt?.toISOString() ?? null,
+          source: "legacy" as AccountSource,
         }
       }
     } catch {
       // Legacy table also doesn't exist
+    }
+
+    // Final fallback: local Claude Code CLI credential
+    if (getExistingClaudeToken()?.trim()) {
+      return {
+        id: SYSTEM_KEYCHAIN_ACCOUNT_ID,
+        email: null,
+        displayName: "Local Claude Code",
+        connectedAt: null,
+        source: "system" as AccountSource,
+      }
     }
 
     return null

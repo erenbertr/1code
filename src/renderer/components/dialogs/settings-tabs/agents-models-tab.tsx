@@ -70,6 +70,7 @@ function AccountRow({
     displayName: string | null
     email: string | null
     connectedAt: string | null
+    source?: "db" | "legacy" | "system"
   }
   isActive: boolean
   onSetActive: () => void
@@ -77,6 +78,15 @@ function AccountRow({
   onRemove: () => void
   isLoading: boolean
 }) {
+  const isSystemManaged = account.source === "system"
+  const subtitle = isSystemManaged
+    ? "Connected via Claude Code CLI"
+    : account.email
+      ? account.email
+      : account.connectedAt
+        ? `Connected ${new Date(account.connectedAt).toLocaleDateString(undefined, { dateStyle: "short" })}`
+        : null
+
   return (
     <div className="flex items-center justify-between p-3 hover:bg-muted/50">
       <div className="flex items-center gap-3">
@@ -84,22 +94,14 @@ function AccountRow({
           <div className="text-sm font-medium">
             {account.displayName || "Anthropic Account"}
           </div>
-          {account.email && (
-            <div className="text-xs text-muted-foreground">{account.email}</div>
-          )}
-          {!account.email && account.connectedAt && (
-            <div className="text-xs text-muted-foreground">
-              Connected{" "}
-              {new Date(account.connectedAt).toLocaleDateString(undefined, {
-                dateStyle: "short",
-              })}
-            </div>
+          {subtitle && (
+            <div className="text-xs text-muted-foreground">{subtitle}</div>
           )}
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        {!isActive && (
+        {!isActive && !isSystemManaged && (
           <Button
             size="sm"
             variant="ghost"
@@ -114,22 +116,24 @@ function AccountRow({
             Active
           </Badge>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-7 w-7">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
-            <DropdownMenuItem
-              className="data-[highlighted]:bg-red-500/15 data-[highlighted]:text-red-400"
-              onClick={onRemove}
-            >
-              Remove
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!isSystemManaged && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-7 w-7">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
+              <DropdownMenuItem
+                className="data-[highlighted]:bg-red-500/15 data-[highlighted]:text-red-400"
+                onClick={onRemove}
+              >
+                Remove
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   )
@@ -282,6 +286,19 @@ export function AgentsModelsTab() {
   const setOpenAIKeyMutation = trpc.voice.setOpenAIKey.useMutation()
   const codexLogoutMutation = trpc.codex.logout.useMutation()
   const trpcUtils = trpc.useUtils()
+
+  // Gemini API key state (encrypted via Electron safeStorage; never touches localStorage)
+  const { data: geminiAuth, isLoading: isGeminiAuthLoading } =
+    trpc.gemini.getAuthStatus.useQuery()
+  const setGeminiKeyMutation = trpc.gemini.setApiKey.useMutation()
+  const clearGeminiKeyMutation = trpc.gemini.clearApiKey.useMutation()
+  const [geminiApiKey, setGeminiApiKey] = useState("")
+  const [isSavingGeminiKey, setIsSavingGeminiKey] = useState(false)
+  const hasGeminiKey = geminiAuth?.ok === true && geminiAuth.hasKey === true
+  const geminiMaskedKey =
+    geminiAuth?.ok === true && geminiAuth.hasKey === true
+      ? geminiAuth.maskedKey
+      : ""
 
   useEffect(() => {
     setModel(storedConfig.model)
@@ -458,6 +475,45 @@ export function AgentsModelsTab() {
       toast.error("Failed to remove Codex API key")
     } finally {
       setIsSavingCodexApiKey(false)
+    }
+  }
+
+  const handleGeminiApiKeyBlur = async () => {
+    const trimmed = geminiApiKey.trim()
+    if (!trimmed) return
+    if (!trimmed.startsWith("AIza")) {
+      toast.error("Invalid Gemini API key format. Key should start with 'AIza'")
+      setGeminiApiKey("")
+      return
+    }
+    setIsSavingGeminiKey(true)
+    try {
+      await setGeminiKeyMutation.mutateAsync({ apiKey: trimmed })
+      await trpcUtils.gemini.getAuthStatus.invalidate()
+      setGeminiApiKey("")
+      toast.success("Gemini API key saved")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save Gemini API key"
+      toast.error(message)
+    } finally {
+      setIsSavingGeminiKey(false)
+    }
+  }
+
+  const handleRemoveGeminiKey = async () => {
+    setIsSavingGeminiKey(true)
+    try {
+      await clearGeminiKeyMutation.mutateAsync()
+      await trpcUtils.gemini.getAuthStatus.invalidate()
+      setGeminiApiKey("")
+      toast.success("Gemini API key removed")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to remove Gemini API key"
+      toast.error(message)
+    } finally {
+      setIsSavingGeminiKey(false)
     }
   }
 
@@ -698,6 +754,50 @@ export function AgentsModelsTab() {
                     onClick={() => void handleRemoveCodexApiKey()}
                     disabled={isSavingCodexApiKey}
                     aria-label="Remove Codex API key"
+                    className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Gemini API Key */}
+          <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="flex items-center justify-between gap-6 p-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-medium">Gemini API Key</Label>
+                  {hasGeminiKey && (
+                    <Badge variant="secondary" className="text-xs">
+                      Active
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {hasGeminiKey
+                    ? `Stored encrypted via OS keychain · ${geminiMaskedKey}`
+                    : "Get a key at aistudio.google.com/apikey"}
+                </p>
+              </div>
+              <div className="flex-shrink-0 w-80 flex items-center gap-2">
+                <Input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
+                  onBlur={handleGeminiApiKeyBlur}
+                  className="w-full font-mono"
+                  placeholder={hasGeminiKey ? "•••••••••••••" : "AIza..."}
+                  disabled={isSavingGeminiKey || isGeminiAuthLoading}
+                />
+                {hasGeminiKey && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => void handleRemoveGeminiKey()}
+                    disabled={isSavingGeminiKey}
+                    aria-label="Remove Gemini API key"
                     className="text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
                   >
                     <Trash2 className="h-4 w-4" />
