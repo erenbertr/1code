@@ -28,7 +28,7 @@ import {
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconFilter, IconLayoutGrid } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconFilter } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -2818,7 +2818,7 @@ export function AgentsSidebar({
         )}
       />
 
-      {/* Navigation — New Agent + Marketplace */}
+      {/* Navigation — New Agent */}
       <div className="px-3 pb-1 flex-shrink-0 space-y-0.5">
         <button
           type="button"
@@ -2831,21 +2831,6 @@ export function AgentsSidebar({
           <IconFilter size={16} stroke={1.5} className="flex-shrink-0" />
           <span className="font-medium flex-1 text-left">New Agent</span>
           <Kbd className="text-[10px] opacity-40">{getShortcutKey("newAgent")}</Kbd>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSettingsActiveTab("preferences")
-            setSettingsDialogOpen(true)
-          }}
-          className={cn(
-            "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] transition-[background-color,color,transform] duration-150 ease-out",
-            "text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground active:scale-[0.98]",
-          )}
-        >
-          <IconLayoutGrid size={16} stroke={1.5} className="flex-shrink-0" />
-          <span className="font-medium">Marketplace</span>
         </button>
       </div>
 
@@ -2944,13 +2929,20 @@ export function AgentsSidebar({
                         return (
                           <ContextMenu key={chat.id}>
                             <ContextMenuTrigger asChild>
-                              <button
-                                type="button"
+                              <div
+                                role="button"
+                                tabIndex={0}
                                 onClick={(e) => handleChatClick(chat.id, e)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault()
+                                    handleChatClick(chat.id, e as unknown as React.MouseEvent)
+                                  }
+                                }}
                                 onMouseEnter={(e) => handleAgentMouseEnter(chat.id, chat.name, e.currentTarget, filteredChats.findIndex(c => c.id === chat.id))}
                                 onMouseLeave={handleAgentMouseLeave}
                                 className={cn(
-                                  "group/agent flex items-center gap-3 w-full pl-3 pr-3 py-2 rounded-lg text-[14px] text-left transition-[background-color,color] duration-100 ease-out",
+                                  "group/agent flex items-center gap-3 w-full pl-3 pr-3 py-2 rounded-lg text-[14px] text-left cursor-pointer transition-[background-color,color] duration-100 ease-out",
                                   isSelected
                                     ? "bg-foreground/[0.06] text-foreground"
                                     : "text-muted-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground",
@@ -2997,7 +2989,7 @@ export function AgentsSidebar({
                                 >
                                   <IconArchive size={12} stroke={1.5} />
                                 </button>
-                              </button>
+                              </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent>
                               <ContextMenuItem onClick={() => handleRenameClick({ id: chat.id, name: chat.name })}>
