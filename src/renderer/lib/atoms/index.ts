@@ -660,19 +660,8 @@ export const customHotkeysAtom = atomWithStorage<CustomHotkeysConfig>(
  */
 export const recordingHotkeyForActionAtom = atom<string | null>(null)
 
-// Login modal (shown when Claude Code auth fails)
-export const agentsLoginModalOpenAtom = atom<boolean>(false)
+// Codex login modal (Claude uses local CLI credentials directly, no in-app modal)
 export const codexLoginModalOpenAtom = atom<boolean>(false)
-
-export type ClaudeLoginModalConfig = {
-  hideCustomModelSettingsLink: boolean
-  autoStartAuth: boolean
-}
-
-export const claudeLoginModalConfigAtom = atom<ClaudeLoginModalConfig>({
-  hideCustomModelSettingsLink: false,
-  autoStartAuth: false,
-})
 
 // Help popover
 export const agentsHelpPopoverOpenAtom = atom<boolean>(false)

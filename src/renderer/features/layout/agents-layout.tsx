@@ -14,7 +14,6 @@ import {
   agentsSettingsDialogOpenAtom,
   apiKeyOnboardingCompletedAtom,
   billingMethodAtom,
-  claudeLoginModalConfigAtom,
   codexOnboardingCompletedAtom,
   isDesktopAtom,
   isFullscreenAtom,
@@ -26,7 +25,6 @@ import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, show
 import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
-import { ClaudeLoginModal } from "../../components/dialogs/claude-login-modal"
 import { CodexLoginModal } from "../../components/dialogs/codex-login-modal"
 import { TooltipProvider } from "../../components/ui/tooltip"
 import { ResizableSidebar } from "../../components/ui/resizable-sidebar"
@@ -116,7 +114,6 @@ export function AgentsLayout() {
   const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom)
   const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom)
   const setBillingMethod = useSetAtom(billingMethodAtom)
-  const claudeLoginModalConfig = useAtomValue(claudeLoginModalConfigAtom)
 
   // Fetch projects to validate selectedProject exists
   const { data: projects, isLoading: isLoadingProjects } =
@@ -303,12 +300,6 @@ export function AgentsLayout() {
     <TooltipProvider delayDuration={300}>
       {/* Global queue processor - handles message queues for all sub-chats */}
       <QueueProcessor />
-      <ClaudeLoginModal
-        hideCustomModelSettingsLink={
-          claudeLoginModalConfig.hideCustomModelSettingsLink
-        }
-        autoStartAuth={claudeLoginModalConfig.autoStartAuth}
-      />
       <CodexLoginModal />
       <div className="flex flex-col w-full h-full relative overflow-hidden bg-background select-none">
         {/* Windows Title Bar (only shown on Windows with frameless window) */}

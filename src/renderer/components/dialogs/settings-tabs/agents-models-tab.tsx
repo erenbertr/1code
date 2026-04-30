@@ -3,8 +3,6 @@ import { ChevronDown, MoreHorizontal, Plus, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
-  agentsLoginModalOpenAtom,
-  claudeLoginModalConfigAtom,
   codexApiKeyAtom,
   codexLoginModalOpenAtom,
   codexOnboardingAuthMethodAtom,
@@ -265,8 +263,6 @@ export function AgentsModelsTab() {
   const [model, setModel] = useState(storedConfig.model)
   const [baseUrl, setBaseUrl] = useState(storedConfig.baseUrl)
   const [token, setToken] = useState(storedConfig.token)
-  const setClaudeLoginModalConfig = useSetAtom(claudeLoginModalConfigAtom)
-  const setClaudeLoginModalOpen = useSetAtom(agentsLoginModalOpenAtom)
   const setCodexLoginModalOpen = useSetAtom(codexLoginModalOpenAtom)
   const isNarrowScreen = useIsNarrowScreen()
   const { data: claudeCodeIntegration, isLoading: isClaudeCodeLoading } =
@@ -343,12 +339,24 @@ export function AgentsModelsTab() {
 
   const canReset = Boolean(model.trim() || baseUrl.trim() || token.trim())
 
-  const handleClaudeCodeSetup = () => {
-    setClaudeLoginModalConfig({
-      hideCustomModelSettingsLink: true,
-      autoStartAuth: true,
-    })
-    setClaudeLoginModalOpen(true)
+  const handleClaudeCodeSetup = async () => {
+    // Refresh integration status from local Claude Code credentials
+    // (macOS Keychain / ~/.claude/.credentials.json). User signs in via the
+    // `claude` CLI directly — we just detect the local token.
+    try {
+      const { token } = await trpcUtils.claudeCode.getSystemToken.fetch()
+      await trpcUtils.claudeCode.getIntegration.invalidate()
+      if (token) {
+        toast.success("Connected to local Claude Code")
+      } else {
+        toast.error("Claude Code is not signed in", {
+          description:
+            "Run `claude` in your terminal to sign in to your Anthropic account.",
+        })
+      }
+    } catch {
+      toast.error("Failed to check Claude Code credentials")
+    }
   }
 
   const handleCodexSetup = () => {
@@ -577,11 +585,11 @@ export function AgentsModelsTab() {
           <Button
             size="sm"
             variant="outline"
-            onClick={handleClaudeCodeSetup}
+            onClick={() => void handleClaudeCodeSetup()}
             disabled={isClaudeCodeLoading}
           >
             <Plus className="h-3 w-3 mr-1" />
-            {isClaudeCodeConnected ? "Add" : "Connect"}
+            {isClaudeCodeConnected ? "Refresh" : "Connect"}
           </Button>
         </div>
 

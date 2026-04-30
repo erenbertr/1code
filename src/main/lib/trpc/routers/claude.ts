@@ -29,6 +29,7 @@ import {
   type ClaudeConfig,
   type McpServerConfig,
 } from "../../claude-config"
+import { getExistingClaudeToken } from "../../claude-token"
 import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects as projectsTable, subChats } from "../../db"
 import { createRollbackStash } from "../../git/stash"
 import {
@@ -158,9 +159,10 @@ function decryptToken(encrypted: string): string {
 }
 
 /**
- * Get Claude Code OAuth token from local SQLite
- * Uses multi-account system first (active account), falls back to legacy table
- * Returns null if not connected
+ * Get Claude Code OAuth token.
+ * Order: in-app multi-account DB → legacy DB table → local Claude Code keychain
+ * (`~/.claude/.credentials.json` or OS keychain entry "Claude Code-credentials").
+ * Returns null if no credentials are available anywhere.
  */
 function getClaudeCodeToken(): string | null {
   try {
@@ -224,6 +226,19 @@ function getClaudeCodeToken(): string | null {
     )
 
     if (!cred?.oauthToken) {
+      // Fall back to user's locally-installed Claude Code credentials
+      // (macOS Keychain "Claude Code-credentials" or ~/.claude/.credentials.json)
+      const localToken = getExistingClaudeToken()
+      if (localToken) {
+        console.log("[claude-auth] Using local Claude Code credentials from system")
+        console.log(
+          "[claude-auth] Token preview:",
+          localToken.slice(0, 20) + "..." + localToken.slice(-10),
+        )
+        console.log("[claude-auth] Token total length:", localToken.length)
+        console.log("[claude-auth] ============================================")
+        return localToken
+      }
       console.log("[claude-auth] No Claude Code credentials found")
       console.log("[claude-auth] ============================================")
       return null

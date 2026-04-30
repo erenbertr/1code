@@ -114,10 +114,20 @@ export const claudeCodeRouter = router({
    */
   hasExistingCliConfig: publicProcedure.query(() => {
     const shellEnv = getClaudeShellEnvironment()
-    const hasConfig = !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN || shellEnv.ANTHROPIC_BASE_URL)
+    const hasEnvKey = !!(
+      shellEnv.ANTHROPIC_API_KEY ||
+      shellEnv.ANTHROPIC_AUTH_TOKEN ||
+      shellEnv.ANTHROPIC_BASE_URL
+    )
+    // Also detect locally-installed Claude Code subscription credentials
+    // (macOS Keychain "Claude Code-credentials" or ~/.claude/.credentials.json).
+    const hasLocalCreds = !!getExistingClaudeToken()
+    const hasConfig = hasEnvKey || hasLocalCreds
     return {
       hasConfig,
-      hasApiKey: !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN),
+      hasApiKey:
+        !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN) ||
+        hasLocalCreds,
       baseUrl: shellEnv.ANTHROPIC_BASE_URL || null,
     }
   }),
@@ -160,9 +170,30 @@ export const claudeCodeRouter = router({
       .where(eq(claudeCodeCredentials.id, "default"))
       .get()
 
+    if (cred?.oauthToken) {
+      return {
+        isConnected: true,
+        connectedAt: cred.connectedAt?.toISOString() ?? null,
+        accountId: null,
+        displayName: null,
+      }
+    }
+
+    // Final fallback: user's locally-installed Claude Code credentials
+    // (macOS Keychain / ~/.claude/.credentials.json)
+    const localToken = getExistingClaudeToken()?.trim() ?? null
+    if (localToken) {
+      return {
+        isConnected: true,
+        connectedAt: null,
+        accountId: null,
+        displayName: "Local Claude Code",
+      }
+    }
+
     return {
-      isConnected: !!cred?.oauthToken,
-      connectedAt: cred?.connectedAt?.toISOString() ?? null,
+      isConnected: false,
+      connectedAt: null,
       accountId: null,
       displayName: null,
     }

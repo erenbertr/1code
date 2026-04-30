@@ -2,8 +2,8 @@ import * as Sentry from "@sentry/electron/renderer"
 import type { ChatTransport, UIMessage } from "ai"
 import { toast } from "sonner"
 import {
-  claudeLoginModalConfigAtom,
-  agentsLoginModalOpenAtom,
+  agentsSettingsDialogActiveTabAtom,
+  agentsSettingsDialogOpenAtom,
   autoOfflineModeAtom,
   type CustomClaudeConfig,
   customClaudeConfigAtom,
@@ -324,26 +324,23 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 // dismisses, or sends a new message.
               }
 
-              // Handle authentication errors - show Claude login modal
+              // Handle authentication errors - direct user to local Claude Code login
               if (chunk.type === "auth-error") {
-                // Store the failed message for retry after successful auth
-                // readyToRetry=false prevents immediate retry - modal sets it to true on OAuth success
-                appStore.set(pendingAuthRetryMessageAtom, {
-                  subChatId: this.config.subChatId,
-                  provider: "claude-code",
-                  prompt,
-                  ...(images.length > 0 && { images }),
-                  readyToRetry: false,
+                // Clear any stale retry record so the next manual send isn't auto-retried
+                appStore.set(pendingAuthRetryMessageAtom, null)
+                toast.error("Claude Code is not authenticated", {
+                  description:
+                    "Run `claude` in your terminal and sign in, or set a custom model in Settings.",
+                  duration: 8000,
+                  action: {
+                    label: "Open Settings",
+                    onClick: () => {
+                      appStore.set(agentsSettingsDialogActiveTabAtom, "models")
+                      appStore.set(agentsSettingsDialogOpenAtom, true)
+                    },
+                  },
                 })
-                appStore.set(claudeLoginModalConfigAtom, {
-                  hideCustomModelSettingsLink: false,
-                  autoStartAuth: false,
-                })
-                // Show the Claude Code login modal
-                appStore.set(agentsLoginModalOpenAtom, true)
-                // Use controller.error() instead of controller.close() so that
-                // the SDK Chat properly resets status from "streaming" to "ready"
-                // This allows user to retry sending messages after failed auth
+                console.log(`[SD] R:AUTH_ERR sub=${subId}`)
                 controller.error(new Error("Authentication required"))
                 return
               }
