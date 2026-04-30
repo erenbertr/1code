@@ -572,7 +572,6 @@ export function SubChatSelector({
   )
 
   const hasNoChats = openSubChats.length === 0
-  const hasSingleChat = openSubChats.length === 1
 
   // Check scroll position for gradients - uses direct DOM manipulation
   const checkScrollPosition = useCallback(() => {
@@ -674,9 +673,8 @@ export function SubChatSelector({
           ref={tabsContainerRef}
           className={cn(
             "flex items-center px-1 py-1 -my-1 gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-hide pr-12",
-            // Hide tabs when sidebar is open (desktop) or when only one chat exists
+            // Hide tabs only when the sub-chats sidebar mode is active (desktop)
             (subChatsSidebarMode === "sidebar" && !isMobile) && "hidden",
-            hasSingleChat && "invisible",
           )}
         >
           {hasNoChats

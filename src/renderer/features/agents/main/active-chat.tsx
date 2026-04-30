@@ -76,6 +76,7 @@ import {
   unifiedSidebarEnabledAtom,
 } from "../../details-sidebar/atoms"
 import { DetailsSidebar } from "../../details-sidebar/details-sidebar"
+import { AgentsSubChatsSidebar } from "../../sidebar/agents-subchats-sidebar"
 import { FileViewerSidebar } from "../../file-viewer"
 import { FileSearchDialog } from "../../file-viewer/components/file-search-dialog"
 import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenAtomFamily } from "../../terminal/atoms"
@@ -89,6 +90,7 @@ import {
   agentsPreviewSidebarOpenAtom,
   agentsPreviewSidebarWidthAtom,
   agentsSubChatsSidebarModeAtom,
+  agentsSubChatsSidebarWidthAtom,
   agentsSubChatUnseenChangesAtom,
   agentsUnseenChangesAtom,
   clearLoading,
@@ -5805,6 +5807,30 @@ Make sure to preserve all functionality from both branches when resolving confli
     <div className="flex h-full flex-col">
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
+        {/* Sub-chats Sidebar - left side, only when sidebar mode is active (desktop) */}
+        {!isMobileFullscreen && subChatsSidebarMode === "sidebar" && (
+          <ResizableSidebar
+            isOpen={true}
+            onClose={() => appStore.set(agentsSubChatsSidebarModeAtom, "tabs")}
+            widthAtom={agentsSubChatsSidebarWidthAtom}
+            minWidth={180}
+            maxWidth={400}
+            side="left"
+            animationDuration={0}
+            initialWidth={200}
+            exitWidth={0}
+            showResizeTooltip={false}
+          >
+            <AgentsSubChatsSidebar
+              onClose={() => appStore.set(agentsSubChatsSidebarModeAtom, "tabs")}
+              isMobile={false}
+              onBackToChats={onBackToChats}
+              isSidebarOpen={isSidebarOpen}
+              isLoading={isLocalChatLoading}
+              agentName={agentChat?.name ?? undefined}
+            />
+          </ResizableSidebar>
+        )}
         {/* Chat Panel */}
         <div
           className="flex-1 flex flex-col overflow-hidden relative"
