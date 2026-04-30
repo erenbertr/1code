@@ -288,9 +288,8 @@ const ChatIcon = React.memo(function ChatIcon({
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.85 }}
                   transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
-                >
-                  <LoadingDot isLoading={false} className="w-2.5 h-2.5 text-muted-foreground" />
-                </motion.div>
+                  className="w-1.5 h-1.5 rounded-full bg-emerald-500"
+                />
               )}
             </AnimatePresence>
           </motion.div>
@@ -637,7 +636,11 @@ const AgentChatItem = React.memo(function AgentChatItem({
                 ref={(el) => nameRefCallback(chatId, el)}
                 className={cn(
                   "truncate block text-[13px] leading-snug",
-                  isSelected ? "text-foreground font-medium" : "text-muted-foreground/80 group-hover:text-foreground",
+                  isSelected
+                    ? "text-foreground font-medium"
+                    : hasUnseenChanges && !isLoading
+                      ? "text-emerald-500 font-medium group-hover:text-emerald-400"
+                      : "text-muted-foreground/80 group-hover:text-foreground",
                 )}
               >
                 <TypewriterText
@@ -823,8 +826,8 @@ const SubChatItem = React.memo(function SubChatItem({
       <div className="flex items-center gap-2">
         {/* Thread status indicator — always visible: animated when loading, paused when idle */}
         <div className="flex-shrink-0 w-[10px] flex items-center justify-center">
-          {hasUnseenChanges ? (
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          {hasUnseenChanges && !isLoading ? (
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           ) : (
             <GridPulseSpinner
               size={10}
@@ -837,7 +840,11 @@ const SubChatItem = React.memo(function SubChatItem({
         </div>
         <span className={cn(
           "truncate text-[12px] leading-snug flex-1",
-          isActive ? "font-medium text-foreground" : "",
+          isActive
+            ? "font-medium text-foreground"
+            : hasUnseenChanges && !isLoading
+              ? "text-emerald-500 font-medium"
+              : "",
         )}>
           {subChat.name || "New Chat"}
         </span>
