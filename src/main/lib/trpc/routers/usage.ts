@@ -2,6 +2,10 @@ import { existsSync } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import {
+  fetchClaudeOAuthUsage,
+  type ClaudeOAuthUsage,
+} from "../../claude-oauth-usage"
 import { publicProcedure, router } from "../index"
 
 export type ClaudeTodayUsage = {
@@ -307,6 +311,15 @@ async function readCodexToday(): Promise<CodexTodayUsage | null> {
   }
 }
 
+export type ClaudePlanUsageResult =
+  | { available: true; usage: ClaudeOAuthUsage; fetchedAt: string }
+  | {
+      available: false
+      reason: "no_credentials" | "unauthorized" | "error"
+      message?: string
+      fetchedAt: string
+    }
+
 export const usageRouter = router({
   today: publicProcedure.query(async (): Promise<UsageTodayResult> => {
     const [claude, codex] = await Promise.all([
@@ -314,5 +327,18 @@ export const usageRouter = router({
       readCodexToday(),
     ])
     return { claude, codex, date: todayLocalISO() }
+  }),
+  plan: publicProcedure.query(async (): Promise<ClaudePlanUsageResult> => {
+    const result = await fetchClaudeOAuthUsage()
+    const fetchedAt = new Date().toISOString()
+    if (result.ok) {
+      return { available: true, usage: result.usage, fetchedAt }
+    }
+    return {
+      available: false,
+      reason: result.reason,
+      message: result.message,
+      fetchedAt,
+    }
   }),
 })
