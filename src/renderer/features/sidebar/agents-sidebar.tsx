@@ -2998,114 +2998,221 @@ export function AgentsSidebar({
                           formatTime={formatTime}
                         />
                       ))}
-                      {group.chats.length > 0 && group.chats.map((chat) => {
-                        const isSelected = selectedChatId === chat.id
-                        const isLoading = loadingChatIds.has(chat.id)
-                        const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
-                        const hasPendingPlan = workspacePendingPlans.has(chat.id)
-                        const isActive = isLoading || hasPendingQuestion || hasPendingPlan
-                        const isPushed = !isActive && pushedChatIds.has(chat.id)
+                      {group.chats.length > 0 && (() => {
+                        const renderChatRow = (chat: ChatType) => {
+                          const isSelected = selectedChatId === chat.id
+                          const isLoading = loadingChatIds.has(chat.id)
+                          const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
+                          const hasPendingPlan = workspacePendingPlans.has(chat.id)
+                          const isActive = isLoading || hasPendingQuestion || hasPendingPlan
+                          const isPushed = !isActive && pushedChatIds.has(chat.id)
+                          const hasUnseen = !isActive && !isPushed && !isSelected && unseenChanges.has(chat.id)
 
-                        return (
-                          <ContextMenu key={chat.id}>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => handleChatClick(chat.id, e)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault()
-                                    handleChatClick(chat.id, e as unknown as React.MouseEvent)
-                                  }
-                                }}
-                                onMouseEnter={(e) => handleAgentMouseEnter(chat.id, chat.name, e.currentTarget, filteredChats.findIndex(c => c.id === chat.id))}
-                                onMouseLeave={handleAgentMouseLeave}
-                                className={cn(
-                                  "group/agent flex items-center gap-3 w-full pl-3 pr-3 py-2 rounded-lg text-[14px] text-left cursor-pointer transition-[background-color,color] duration-100 ease-out",
-                                  isSelected
-                                    ? "bg-foreground/[0.06] text-foreground"
-                                    : "text-muted-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground",
-                                )}
-                              >
-                                {/* Status dot */}
-                                <AnimatePresence mode="wait" initial={false}>
-                                  {isActive ? (
-                                    <motion.span
-                                      key="active"
-                                      initial={{ opacity: 0, scale: 0.85 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      exit={{ opacity: 0, scale: 0.85 }}
-                                      transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
-                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-muted-foreground"
-                                    >
-                                      <GridPulseSpinner size={12} />
-                                    </motion.span>
-                                  ) : isPushed ? (
-                                    <motion.span
-                                      key="pushed"
-                                      initial={{ opacity: 0, scale: 0.85 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      exit={{ opacity: 0, scale: 0.85 }}
-                                      transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
-                                      aria-label="Pushed"
-                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-emerald-500"
-                                    >
-                                      <Check size={12} strokeWidth={2.5} />
-                                    </motion.span>
-                                  ) : (
-                                    <motion.span
-                                      key="idle"
-                                      initial={{ opacity: 0, scale: 0.85 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      exit={{ opacity: 0, scale: 0.85 }}
-                                      transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
-                                      className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px]"
-                                    >
-                                      <span className={cn(
-                                        "w-[6px] h-[6px] rounded-full",
-                                        isSelected ? "bg-muted-foreground/50" : "bg-muted-foreground/25",
-                                      )} />
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                                <span className="truncate flex-1">{chat.name || "Untitled"}</span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleArchiveSingle(chat.id)
+                          return (
+                            <ContextMenu key={chat.id}>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => handleChatClick(chat.id, e)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault()
+                                      handleChatClick(chat.id, e as unknown as React.MouseEvent)
+                                    }
                                   }}
-                                  className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/agent:opacity-100 transition-opacity duration-150"
-                                  aria-label="Archive"
+                                  onMouseEnter={(e) => handleAgentMouseEnter(chat.id, chat.name, e.currentTarget, filteredChats.findIndex(c => c.id === chat.id))}
+                                  onMouseLeave={handleAgentMouseLeave}
+                                  className={cn(
+                                    "group/agent flex items-center gap-3 w-full pl-3 pr-3 py-2 rounded-lg text-[14px] text-left cursor-pointer transition-[background-color,color] duration-100 ease-out",
+                                    isSelected
+                                      ? "bg-foreground/[0.06] text-foreground"
+                                      : hasUnseen
+                                        ? "text-sky-500 font-medium hover:bg-foreground/[0.04]"
+                                        : "text-muted-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground",
+                                  )}
                                 >
-                                  <IconArchive size={12} stroke={1.5} />
-                                </button>
+                                  {/* Status dot */}
+                                  <AnimatePresence mode="wait" initial={false}>
+                                    {hasPendingQuestion ? (
+                                      <motion.span
+                                        key="question"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        aria-label="Awaiting your answer"
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-orange-500"
+                                      >
+                                        <QuestionIcon className="w-3.5 h-3.5 text-orange-500" />
+                                      </motion.span>
+                                    ) : hasPendingPlan ? (
+                                      <motion.span
+                                        key="plan"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        aria-label="Plan ready"
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px]"
+                                      >
+                                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                      </motion.span>
+                                    ) : isLoading ? (
+                                      <motion.span
+                                        key="active"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-muted-foreground"
+                                      >
+                                        <GridPulseSpinner size={12} />
+                                      </motion.span>
+                                    ) : isPushed ? (
+                                      <motion.span
+                                        key="pushed"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        aria-label="Pushed"
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px] text-emerald-500"
+                                      >
+                                        <Check size={12} strokeWidth={2.5} />
+                                      </motion.span>
+                                    ) : hasUnseen ? (
+                                      <motion.span
+                                        key="unseen"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        aria-label="Done — unread"
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px]"
+                                      >
+                                        <span className="w-2 h-2 rounded-full bg-sky-500" />
+                                      </motion.span>
+                                    ) : (
+                                      <motion.span
+                                        key="idle"
+                                        initial={{ opacity: 0, scale: 0.85 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={{ duration: DURATION_INSTANT, ease: EASE_OUT }}
+                                        className="flex-shrink-0 flex items-center justify-center w-[18px] h-[18px]"
+                                      >
+                                        <span className={cn(
+                                          "w-[6px] h-[6px] rounded-full",
+                                          isSelected ? "bg-muted-foreground/50" : "bg-muted-foreground/25",
+                                        )} />
+                                      </motion.span>
+                                    )}
+                                  </AnimatePresence>
+                                  <span className="truncate flex-1">{chat.name || "Untitled"}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleArchiveSingle(chat.id)
+                                    }}
+                                    className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/agent:opacity-100 transition-opacity duration-150"
+                                    aria-label="Archive"
+                                  >
+                                    <IconArchive size={12} stroke={1.5} />
+                                  </button>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onClick={() => handleRenameClick({ id: chat.id, name: chat.name })}>
+                                  Rename
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={() => handleArchiveSingle(chat.id)}>
+                                  Archive
+                                </ContextMenuItem>
+                                {chat.branch && (
+                                  <>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem onClick={() => handleCopyBranch(chat.branch!)}>
+                                      Copy branch name
+                                    </ContextMenuItem>
+                                  </>
+                                )}
+                                <ContextMenuSeparator />
+                                <ContextMenuItem onClick={() => handleArchiveOthers(chat.id)}>
+                                  Archive others
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          )
+                        }
+
+                        const statusBuckets: Array<{ key: string; label: string; chats: ChatType[] }> = [
+                          { key: "in-progress", label: "Working in progress", chats: [] },
+                          { key: "question", label: "Question", chats: [] },
+                          { key: "done", label: "Done", chats: [] },
+                          { key: "pushed", label: "Committed + pushed", chats: [] },
+                        ]
+                        for (const chat of group.chats) {
+                          const isLoading = loadingChatIds.has(chat.id)
+                          const hasPendingQuestion = workspacePendingQuestions.has(chat.id)
+                          const hasPendingPlan = workspacePendingPlans.has(chat.id)
+                          const isActive = isLoading || hasPendingQuestion || hasPendingPlan
+                          const isPushed = !isActive && pushedChatIds.has(chat.id)
+
+                          if (hasPendingQuestion || hasPendingPlan) statusBuckets[1]!.chats.push(chat)
+                          else if (isLoading) statusBuckets[0]!.chats.push(chat)
+                          else if (isPushed) statusBuckets[3]!.chats.push(chat)
+                          else statusBuckets[2]!.chats.push(chat)
+                        }
+
+                        return statusBuckets
+                          .filter((bucket) => bucket.chats.length > 0)
+                          .map((bucket) => {
+                            const canArchiveAll = bucket.key === "done" || bucket.key === "pushed"
+                            return (
+                              <div key={bucket.key} className="mt-1 first:mt-0">
+                                <div className="group/bucket-header flex items-center px-3 pt-1.5 pb-0.5 select-none">
+                                  <span className="flex-1 text-[10px] uppercase tracking-wider text-muted-foreground/30 font-medium">
+                                    {bucket.label}
+                                  </span>
+                                  {canArchiveAll && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        const chatIds = bucket.chats.map((c) => c.id)
+                                        if (chatIds.length === 0) return
+                                        const isArchivingActiveChat = selectedChatId
+                                          ? chatIds.includes(selectedChatId)
+                                          : false
+                                        archiveChatsBatchMutation.mutate({ chatIds }, {
+                                          onSuccess: () => {
+                                            if (isArchivingActiveChat) {
+                                              const remainingChats = filteredChats.filter(
+                                                (c) => !chatIds.includes(c.id),
+                                              )
+                                              const isPreviousAvailable = previousChatId &&
+                                                remainingChats.some((c) => c.id === previousChatId)
+                                              setSelectedChatId(isPreviousAvailable ? previousChatId : null)
+                                            }
+                                          },
+                                        })
+                                      }}
+                                      disabled={archiveChatsBatchMutation.isPending}
+                                      className="flex-shrink-0 h-4 w-4 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/bucket-header:opacity-100 transition-opacity duration-150 disabled:opacity-30"
+                                      aria-label={`Archive all ${bucket.label.toLowerCase()}`}
+                                      title={`Archive all ${bucket.label.toLowerCase()}`}
+                                    >
+                                      <IconArchive size={11} stroke={1.8} />
+                                    </button>
+                                  )}
+                                </div>
+                                {bucket.chats.map(renderChatRow)}
                               </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onClick={() => handleRenameClick({ id: chat.id, name: chat.name })}>
-                                Rename
-                              </ContextMenuItem>
-                              <ContextMenuItem onClick={() => handleArchiveSingle(chat.id)}>
-                                Archive
-                              </ContextMenuItem>
-                              {chat.branch && (
-                                <>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuItem onClick={() => handleCopyBranch(chat.branch!)}>
-                                    Copy branch name
-                                  </ContextMenuItem>
-                                </>
-                              )}
-                              <ContextMenuSeparator />
-                              <ContextMenuItem onClick={() => handleArchiveOthers(chat.id)}>
-                                Archive others
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        )
-                      })}
+                            )
+                          })
+                      })()}
                     </motion.div>
                   )}
                 </AnimatePresence>
