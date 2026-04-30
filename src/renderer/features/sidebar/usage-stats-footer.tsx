@@ -117,11 +117,14 @@ interface QuotaCell {
   utilization: number | null
   resetsAt: string | null
   tooltipDescription: string
+  useResetAsLabel?: boolean
 }
 
 function QuotaChip({ cell }: { cell: QuotaCell }) {
   const resetIn = formatResetIn(cell.resetsAt)
   const isHigh = cell.utilization !== null && cell.utilization >= 80
+  const displayLabel =
+    cell.useResetAsLabel && resetIn ? resetIn : cell.label
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
@@ -132,7 +135,7 @@ function QuotaChip({ cell }: { cell: QuotaCell }) {
           )}
         >
           <span className="text-[9px] text-muted-foreground/90 truncate">
-            {cell.label}
+            {displayLabel}
           </span>
           <span
             className={cn(
@@ -320,6 +323,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
       utilization: planUsage.fiveHour.utilization,
       resetsAt: planUsage.fiveHour.resetsAt,
       tooltipDescription: "Rolling 5-hour window.",
+      useResetAsLabel: true,
     },
     planUsage?.sevenDay && {
       key: "claude-7d",
@@ -328,6 +332,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
       utilization: planUsage.sevenDay.utilization,
       resetsAt: planUsage.sevenDay.resetsAt,
       tooltipDescription: "Combined 7-day usage across all models.",
+      useResetAsLabel: true,
     },
     planUsage?.sevenDayOpus && {
       key: "claude-opus",
@@ -357,6 +362,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
       utilization: codexPlanUsage.primary.utilization,
       resetsAt: codexPlanUsage.primary.resetsAt,
       tooltipDescription: "Codex 5-hour rolling window.",
+      useResetAsLabel: true,
     },
     codexPlanUsage?.secondary && {
       key: "codex-7d",
@@ -365,6 +371,7 @@ export const UsageStatsFooter = memo(function UsageStatsFooter() {
       utilization: codexPlanUsage.secondary.utilization,
       resetsAt: codexPlanUsage.secondary.resetsAt,
       tooltipDescription: "Codex 7-day rolling window.",
+      useResetAsLabel: true,
     },
   ].filter(Boolean) as QuotaCell[]
 
