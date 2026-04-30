@@ -131,6 +131,11 @@ contextBridge.exposeInMainWorld("desktopApi", {
   showNotification: (options: { title: string; body: string }) =>
     ipcRenderer.invoke("app:show-notification", options),
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
+  openTerminal: (path: string) =>
+    ipcRenderer.invoke("shell:open-terminal", path) as Promise<{
+      success: boolean
+      error?: string
+    }>,
 
   // API base URL (for fetch requests to server)
   getApiBaseUrl: () => ipcRenderer.invoke("app:get-api-base-url"),
@@ -333,6 +338,7 @@ export interface DesktopApi {
   setBadgeIcon: (imageData: string | null) => Promise<void>
   showNotification: (options: { title: string; body: string }) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  openTerminal: (path: string) => Promise<{ success: boolean; error?: string }>
   getApiBaseUrl: () => Promise<string>
   clipboardWrite: (text: string) => Promise<void>
   clipboardRead: () => Promise<string>

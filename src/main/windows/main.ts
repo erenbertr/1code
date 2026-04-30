@@ -289,6 +289,46 @@ function registerIpcHandlers(): void {
     shell.openExternal(url),
   )
 
+  // Open a native terminal at the given directory
+  ipcMain.handle("shell:open-terminal", async (_event, dirPath: string) => {
+    if (typeof dirPath !== "string" || !dirPath) {
+      return { success: false, error: "Invalid path" }
+    }
+    if (!existsSync(dirPath)) {
+      return { success: false, error: "Path does not exist" }
+    }
+    try {
+      const { spawn } = await import("child_process")
+      if (process.platform === "darwin") {
+        spawn("open", ["-a", "Terminal", dirPath], {
+          detached: true,
+          stdio: "ignore",
+        }).unref()
+        return { success: true }
+      }
+      if (process.platform === "win32") {
+        spawn("cmd", ["/c", "start", "", "cmd"], {
+          cwd: dirPath,
+          detached: true,
+          stdio: "ignore",
+        }).unref()
+        return { success: true }
+      }
+      spawn("x-terminal-emulator", [], {
+        cwd: dirPath,
+        detached: true,
+        stdio: "ignore",
+      }).unref()
+      return { success: true }
+    } catch (error) {
+      console.error("[Main] Failed to open terminal:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }
+    }
+  })
+
   // Clipboard
   ipcMain.handle("clipboard:write", (_event, text: string) =>
     clipboard.writeText(text),
