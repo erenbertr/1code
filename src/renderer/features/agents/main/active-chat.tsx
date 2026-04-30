@@ -4564,6 +4564,16 @@ Make sure to preserve all functionality from both branches when resolving confli
         next.add(chatId)
         return next
       })
+      const isSoundEnabled = appStore.get(soundNotificationsEnabledAtom)
+      if (isSoundEnabled) {
+        try {
+          const audio = new Audio("./commitandpush.mp3")
+          audio.volume = 1.0
+          audio.play().catch(() => {})
+        } catch {
+          // Ignore audio errors
+        }
+      }
     }
   }, [commitChanges, pushBranch, chatId, setPushedChatIds])
 
@@ -5098,7 +5108,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               const isSoundEnabled = appStore.get(soundNotificationsEnabledAtom)
               if (isSoundEnabled) {
                 try {
-                  const audio = new Audio("./sound.mp3")
+                  const audio = new Audio("./done.mp3")
                   audio.volume = 1.0
                   audio.play().catch(() => {})
                 } catch {
@@ -5367,7 +5377,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               const isSoundEnabled = appStore.get(soundNotificationsEnabledAtom)
               if (isSoundEnabled) {
                 try {
-                  const audio = new Audio("./sound.mp3")
+                  const audio = new Audio("./done.mp3")
                   audio.volume = 1.0
                   audio.play().catch(() => {})
                 } catch {
