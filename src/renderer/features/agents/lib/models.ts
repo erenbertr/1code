@@ -51,11 +51,13 @@ export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
 }
 
 export const GEMINI_MODELS = [
-  { id: "gemini-3-pro-preview", name: "Gemini 3 Pro", version: "Preview" },
+  { id: "auto-gemini-3", name: "Gemini 3", version: "Auto" },
+  { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", version: "Preview" },
   { id: "gemini-3-flash-preview", name: "Gemini 3 Flash", version: "Preview" },
+  { id: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", version: "Preview" },
+  { id: "auto-gemini-2.5", name: "Gemini 2.5", version: "Auto" },
   { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", version: "Pro" },
   { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", version: "Flash" },
   { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", version: "Lite" },
-  { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", version: "Flash" },
 ]
 

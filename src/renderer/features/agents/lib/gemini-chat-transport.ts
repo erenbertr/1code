@@ -14,6 +14,7 @@ type UIMessageChunk = any
 type GeminiChatTransportConfig = {
   chatId: string
   subChatId: string
+  cwd?: string
 }
 
 type ImageAttachment = {
@@ -22,7 +23,7 @@ type ImageAttachment = {
   filename?: string
 }
 
-const DEFAULT_GEMINI_MODEL_ID = "gemini-3-pro-preview"
+const DEFAULT_GEMINI_MODEL_ID = "auto-gemini-3"
 
 function getSelectedGeminiModelId(subChatId: string): string {
   const stored = appStore.get(subChatGeminiModelIdAtomFamily(subChatId))
@@ -75,6 +76,7 @@ export class GeminiChatTransport implements ChatTransport<UIMessage> {
             runId,
             prompt,
             modelId,
+            ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
             ...(sessionId ? { sessionId } : {}),
             ...(images.length > 0 ? { images } : {}),
           },

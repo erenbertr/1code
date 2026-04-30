@@ -1,9 +1,14 @@
+import { createACPProvider, type ACPProvider } from "@mcpc-tech/acp-ai-provider"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { observable } from "@trpc/server/observable"
-import { convertToModelMessages, streamText } from "ai"
+import { streamText } from "ai"
 import { eq } from "drizzle-orm"
+import { existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { delimiter, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
+import { getClaudeShellEnvironment } from "../../claude/env"
 import { getDatabase, subChats } from "../../db"
 import {
   clearGeminiApiKey,
@@ -27,7 +32,119 @@ type ActiveGeminiStream = {
   cancelRequested: boolean
 }
 
+type GeminiProviderSession = {
+  provider: ACPProvider
+  cwd: string
+  binaryPath: string
+}
+
 const activeStreams = new Map<string, ActiveGeminiStream>()
+const providerSessions = new Map<string, GeminiProviderSession>()
+
+const COMMON_GEMINI_BINARY_PATHS = [
+  "/opt/homebrew/bin/gemini",
+  "/usr/local/bin/gemini",
+  join(homedir(), ".local/bin/gemini"),
+  join(homedir(), ".npm-global/bin/gemini"),
+]
+
+let cachedGeminiBinaryPath: string | null = null
+
+function resolveGeminiBinaryPath(): string | null {
+  if (cachedGeminiBinaryPath && existsSync(cachedGeminiBinaryPath)) {
+    return cachedGeminiBinaryPath
+  }
+
+  const binaryName = process.platform === "win32" ? "gemini.exe" : "gemini"
+
+  try {
+    const shellEnv = getClaudeShellEnvironment()
+    const pathEnv = shellEnv.PATH || process.env.PATH || ""
+    for (const dir of pathEnv.split(delimiter)) {
+      if (!dir) continue
+      const candidate = join(dir, binaryName)
+      if (existsSync(candidate)) {
+        cachedGeminiBinaryPath = candidate
+        return candidate
+      }
+    }
+  } catch {
+    // fall through to common paths
+  }
+
+  for (const candidate of COMMON_GEMINI_BINARY_PATHS) {
+    if (existsSync(candidate)) {
+      cachedGeminiBinaryPath = candidate
+      return candidate
+    }
+  }
+
+  return null
+}
+
+function buildGeminiSpawnEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  try {
+    Object.assign(env, getClaudeShellEnvironment())
+  } catch {
+    // fall back to process.env
+  }
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value
+  }
+  return env
+}
+
+function getOrCreateProvider(params: {
+  subChatId: string
+  cwd: string
+  binaryPath: string
+  existingSessionId?: string
+}): ACPProvider {
+  const existing = providerSessions.get(params.subChatId)
+
+  if (
+    existing &&
+    existing.cwd === params.cwd &&
+    existing.binaryPath === params.binaryPath
+  ) {
+    return existing.provider
+  }
+
+  if (existing) {
+    existing.provider.cleanup()
+    providerSessions.delete(params.subChatId)
+  }
+
+  const provider = createACPProvider({
+    command: params.binaryPath,
+    args: ["--acp"],
+    env: buildGeminiSpawnEnv(),
+    session: {
+      cwd: params.cwd,
+      mcpServers: [],
+    },
+    ...(params.existingSessionId
+      ? { existingSessionId: params.existingSessionId }
+      : {}),
+    persistSession: true,
+  })
+
+  providerSessions.set(params.subChatId, {
+    provider,
+    cwd: params.cwd,
+    binaryPath: params.binaryPath,
+  })
+
+  return provider
+}
+
+function cleanupProvider(subChatId: string): void {
+  const existing = providerSessions.get(subChatId)
+  if (!existing) return
+  existing.provider.cleanup()
+  providerSessions.delete(subChatId)
+}
 
 export function hasActiveGeminiStreams(): boolean {
   return activeStreams.size > 0
@@ -38,6 +155,9 @@ export function abortAllGeminiStreams(): void {
     stream.controller.abort()
   }
   activeStreams.clear()
+  for (const subChatId of [...providerSessions.keys()]) {
+    cleanupProvider(subChatId)
+  }
 }
 
 function parseStoredMessages(raw: string | null | undefined): any[] {
@@ -71,6 +191,16 @@ function extractPromptFromStoredMessage(message: any): string {
   return textParts.join("\n") + fileContents.join("")
 }
 
+function getLastSessionId(messages: any[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const meta = messages[i]?.metadata
+    if (meta && typeof meta.sessionId === "string" && meta.sessionId) {
+      return meta.sessionId
+    }
+  }
+  return undefined
+}
+
 function buildUserParts(
   prompt: string,
   images:
@@ -100,73 +230,48 @@ function buildUserParts(
   return parts
 }
 
-// Convert a UIMessage stored in our DB into the shape convertToModelMessages expects.
-// Replaces our custom data-image parts with file parts, and inlines file-content text.
-function normalizeMessageForModel(message: any): any {
-  if (!message || !Array.isArray(message.parts)) return message
+function buildModelMessageContent(
+  prompt: string,
+  images:
+    | Array<{
+        base64Data?: string
+        mediaType?: string
+        filename?: string
+      }>
+    | undefined,
+): any[] {
+  const content: any[] = [{ type: "text", text: prompt }]
 
-  const normalizedParts: any[] = []
-  const inlinedFileContents: string[] = []
-
-  for (const part of message.parts) {
-    if (!part || typeof part !== "object") continue
-
-    if (part.type === "text" && typeof part.text === "string") {
-      normalizedParts.push({ type: "text", text: part.text })
-      continue
-    }
-
-    if (part.type === "data-image" && part.data) {
-      const data = part.data
-      const base64 = typeof data.base64Data === "string" ? data.base64Data : null
-      const mediaType =
-        typeof data.mediaType === "string" ? data.mediaType : "image/png"
-      if (base64) {
-        normalizedParts.push({
-          type: "file",
-          mediaType,
-          data: base64,
-          ...(data.filename ? { filename: data.filename } : {}),
-        })
-      }
-      continue
-    }
-
-    if (part.type === "file-content" && typeof part.content === "string") {
-      const filePath =
-        typeof part.filePath === "string" ? part.filePath : "file"
-      const fileName = filePath.split("/").pop() || filePath
-      inlinedFileContents.push(`\n--- ${fileName} ---\n${part.content}`)
-      continue
-    }
-  }
-
-  if (inlinedFileContents.length > 0) {
-    const lastTextIndex = [...normalizedParts]
-      .map((p, i) => (p.type === "text" ? i : -1))
-      .filter((i) => i >= 0)
-      .pop()
-    if (typeof lastTextIndex === "number" && lastTextIndex >= 0) {
-      normalizedParts[lastTextIndex] = {
-        type: "text",
-        text:
-          (normalizedParts[lastTextIndex].text || "") +
-          inlinedFileContents.join(""),
-      }
-    } else {
-      normalizedParts.push({
-        type: "text",
-        text: inlinedFileContents.join(""),
+  if (images && images.length > 0) {
+    for (const image of images) {
+      if (!image.base64Data || !image.mediaType) continue
+      content.push({
+        type: "file",
+        mediaType: image.mediaType,
+        data: image.base64Data,
+        ...(image.filename ? { filename: image.filename } : {}),
       })
     }
   }
 
-  return { ...message, parts: normalizedParts }
+  return content
 }
 
 export const geminiRouter = router({
   getAuthStatus: publicProcedure.query((): GeminiAuthStatus => {
     return getGeminiAuthStatus()
+  }),
+
+  getCliStatus: publicProcedure.query(() => {
+    const binaryPath = resolveGeminiBinaryPath()
+    const geminiHome = join(homedir(), ".gemini")
+    const homeExists = existsSync(geminiHome)
+    return {
+      installed: Boolean(binaryPath),
+      binaryPath,
+      loggedIn: homeExists,
+      geminiHome: homeExists ? geminiHome : null,
+    }
   }),
 
   setApiKey: publicProcedure
@@ -214,7 +319,9 @@ export const geminiRouter = router({
         runId: z.string(),
         prompt: z.string(),
         modelId: z.string().min(1),
+        cwd: z.string().optional(),
         sessionId: z.string().optional(),
+        forceNewSession: z.boolean().optional(),
         images: z.array(imageAttachmentSchema).optional(),
       }),
     )
@@ -224,6 +331,7 @@ export const geminiRouter = router({
         if (existingStream) {
           existingStream.cancelRequested = true
           existingStream.controller.abort()
+          cleanupProvider(input.subChatId)
         }
 
         const abortController = new AbortController()
@@ -256,12 +364,12 @@ export const geminiRouter = router({
 
         ;(async () => {
           try {
-            const apiKey = loadGeminiApiKey()
-            if (!apiKey) {
+            const binaryPath = resolveGeminiBinaryPath()
+            if (!binaryPath) {
               safeEmit({
                 type: "error",
                 errorText:
-                  "No Gemini API key configured. Add one in Settings → Models.",
+                  "Gemini CLI not found. Install it with `npm install -g @google/gemini-cli` (or `brew install gemini-cli`) and run `gemini` once to log in.",
               })
               safeEmit({ type: "finish" })
               safeComplete()
@@ -289,7 +397,6 @@ export const geminiRouter = router({
               extractPromptFromStoredMessage(lastMessage) === input.prompt
 
             let messagesForStream = existingMessages
-            const sessionId = input.sessionId ?? randomUUID()
 
             const isAuthoritativeRun = () => {
               const currentStream = activeStreams.get(input.subChatId)
@@ -319,20 +426,37 @@ export const geminiRouter = router({
               persistSubChatMessages(messagesForStream)
             }
 
-            const provider = createGoogleGenerativeAI({ apiKey })
-            const languageModel = provider(input.modelId)
+            if (input.forceNewSession) {
+              cleanupProvider(input.subChatId)
+            }
 
-            const normalizedMessages = messagesForStream.map(
-              normalizeMessageForModel,
-            )
-            const modelMessages = await convertToModelMessages(
-              normalizedMessages,
-            )
+            const cwd = input.cwd && input.cwd.trim() ? input.cwd : process.cwd()
+
+            const provider = getOrCreateProvider({
+              subChatId: input.subChatId,
+              cwd,
+              binaryPath,
+              existingSessionId: input.forceNewSession
+                ? undefined
+                : input.sessionId ?? getLastSessionId(existingMessages),
+            })
 
             const startedAt = Date.now()
+            let latestSessionId =
+              provider.getSessionId() ||
+              input.sessionId ||
+              getLastSessionId(existingMessages) ||
+              randomUUID()
+
             const result = streamText({
-              model: languageModel,
-              messages: modelMessages,
+              model: provider.languageModel(input.modelId),
+              messages: [
+                {
+                  role: "user",
+                  content: buildModelMessageContent(input.prompt, input.images),
+                },
+              ],
+              tools: provider.tools,
               abortSignal: abortController.signal,
             })
 
@@ -350,6 +474,9 @@ export const geminiRouter = router({
               originalMessages: messagesForStream,
               generateMessageId: () => crypto.randomUUID(),
               messageMetadata: ({ part }) => {
+                const sessionId = provider.getSessionId() || latestSessionId
+                if (sessionId) latestSessionId = sessionId
+
                 if (part.type === "finish") {
                   return {
                     model: input.modelId,
@@ -419,7 +546,7 @@ export const geminiRouter = router({
               if (inputTokens || outputTokens) {
                 try {
                   await appendGeminiUsage({
-                    sessionId,
+                    sessionId: latestSessionId,
                     modelId: input.modelId,
                     inputTokens,
                     outputTokens,
@@ -434,7 +561,7 @@ export const geminiRouter = router({
                   type: "message-metadata",
                   messageMetadata: {
                     model: input.modelId,
-                    sessionId,
+                    sessionId: latestSessionId,
                     inputTokens,
                     outputTokens,
                     totalTokens,
@@ -463,6 +590,11 @@ export const geminiRouter = router({
           } finally {
             const activeStream = activeStreams.get(input.subChatId)
             if (activeStream?.runId === input.runId) {
+              const shouldCleanup =
+                abortController.signal.aborted || activeStream.cancelRequested
+              if (shouldCleanup) {
+                cleanupProvider(input.subChatId)
+              }
               activeStreams.delete(input.subChatId)
             }
           }
@@ -495,6 +627,7 @@ export const geminiRouter = router({
   cleanup: publicProcedure
     .input(z.object({ subChatId: z.string() }))
     .mutation(({ input }) => {
+      cleanupProvider(input.subChatId)
       const activeStream = activeStreams.get(input.subChatId)
       if (activeStream) {
         activeStream.controller.abort()
