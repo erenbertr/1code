@@ -28,7 +28,7 @@ import {
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconFilter } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -99,7 +99,7 @@ import {
 import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT, type SubChatMeta } from "../agents/stores/sub-chat-store"
 import { getWindowId } from "../../contexts/WindowContext"
 import { AgentsHelpPopover } from "../agents/components/agents-help-popover"
-import { getShortcutKey, isDesktopApp } from "../../lib/utils/platform"
+import { isDesktopApp } from "../../lib/utils/platform"
 import { useResolvedHotkeyDisplay, useResolvedHotkeyDisplayWithAlt } from "../../lib/hotkeys"
 import { pluralize } from "../agents/utils/pluralize"
 import { formatTimeAgo } from "../agents/utils/format-time-ago"
@@ -2817,22 +2817,6 @@ export function AgentsSidebar({
           searchQuery ? "h-7 opacity-100" : "h-0 opacity-0 overflow-hidden border-0 p-0 m-0",
         )}
       />
-
-      {/* Navigation — New Agent */}
-      <div className="px-3 pb-1 flex-shrink-0 space-y-0.5">
-        <button
-          type="button"
-          onClick={handleNewAgent}
-          className={cn(
-            "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] transition-[background-color,color,transform] duration-150 ease-out",
-            "bg-foreground/[0.04] text-foreground hover:bg-foreground/[0.08] active:scale-[0.98]",
-          )}
-        >
-          <IconFilter size={16} stroke={1.5} className="flex-shrink-0" />
-          <span className="font-medium flex-1 text-left">New Agent</span>
-          <Kbd className="text-[10px] opacity-40">{getShortcutKey("newAgent")}</Kbd>
-        </button>
-      </div>
 
       {/* Project-grouped agents list */}
       <div className="flex-1 min-h-0 relative">
