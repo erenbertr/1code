@@ -44,10 +44,10 @@ function formatResetIn(resetsAt: string | null): string | null {
 }
 
 function utilizationColor(utilization: number | null): string {
-  if (utilization === null) return "bg-muted-foreground/30"
-  if (utilization >= 90) return "bg-red-500"
-  if (utilization >= 70) return "bg-amber-500"
-  return "bg-blue-500"
+  if (utilization === null) return "bg-muted-foreground/20"
+  if (utilization >= 90) return "bg-red-500/50"
+  if (utilization >= 70) return "bg-amber-500/40"
+  return "bg-foreground/25"
 }
 
 interface UsageBreakdown {
@@ -140,12 +140,12 @@ function PlanRow({
           )}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground/80 truncate">{label}</span>
-            <span className="font-mono text-foreground/80 tabular-nums">
+            <span className="text-muted-foreground/70 truncate">{label}</span>
+            <span className="font-mono text-muted-foreground tabular-nums">
               {formatPercent(utilization)}
             </span>
           </div>
-          <div className="h-1 w-full rounded-full bg-foreground/10 overflow-hidden">
+          <div className="h-1 w-full rounded-full bg-foreground/[0.06] overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all",
