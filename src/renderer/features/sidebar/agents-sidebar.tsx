@@ -95,6 +95,7 @@ import {
   desktopViewAtom,
   expandedWorkspaceIdsAtom,
   subChatFilesAtom,
+  requestNewChatFormResetAtom,
   type UndoItem,
 } from "../agents/atoms"
 import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT, type SubChatMeta } from "../agents/stores/sub-chat-store"
@@ -1484,6 +1485,7 @@ export function AgentsSidebar({
   const autoAdvanceTarget = useAtomValue(autoAdvanceTargetAtom)
   const [selectedDraftId, setSelectedDraftId] = useAtom(selectedDraftIdAtom)
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const requestNewChatFormReset = useSetAtom(requestNewChatFormResetAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
   const pushedChatIds = useAtomValue(pushedChatIdsAtom)
@@ -2105,6 +2107,7 @@ export function AgentsSidebar({
       label: string
       projectId: string | null
       chats: ChatType[]
+      drafts: NewChatDraft[]
     }> = []
     const groupMap = new Map<string, ChatType[]>()
     const groupOrder: string[] = []
@@ -2122,11 +2125,36 @@ export function AgentsSidebar({
       groupMap.get(groupKey)!.push(chat)
     }
 
-    // Build groups from chats
+    // Bucket visible drafts by project group (same key shape as chats)
+    const draftMap = new Map<string, NewChatDraft[]>()
+    for (const draft of drafts) {
+      const draftProjectId = draft.project?.id
+      const groupKey = draftProjectId && projectsMap.has(draftProjectId)
+        ? `proj:${draftProjectId}`
+        : "ungrouped"
+      if (!draftMap.has(groupKey)) {
+        draftMap.set(groupKey, [])
+        // Ensure draft-only groups still show up
+        if (!groupMap.has(groupKey)) {
+          groupMap.set(groupKey, [])
+          groupOrder.push(groupKey)
+        }
+      }
+      draftMap.get(groupKey)!.push(draft)
+      if (draftProjectId) projectIdsWithChats.add(draftProjectId)
+    }
+
+    // Build groups from chats + drafts
     for (const key of groupOrder) {
       const chats = groupMap.get(key)!
+      const groupDrafts = draftMap.get(key) ?? []
       const firstChat = chats[0]
-      const project = firstChat?.projectId ? projectsMap.get(firstChat.projectId) : null
+      const projectIdFromKey = key.startsWith("proj:") ? key.slice(5) : null
+      const project = firstChat?.projectId
+        ? projectsMap.get(firstChat.projectId)
+        : projectIdFromKey
+          ? projectsMap.get(projectIdFromKey)
+          : null
 
       let label = key
       if (key === "ungrouped") {
@@ -2140,8 +2168,9 @@ export function AgentsSidebar({
       groups.push({
         key,
         label,
-        projectId: firstChat?.projectId ?? null,
+        projectId: firstChat?.projectId ?? projectIdFromKey,
         chats,
+        drafts: groupDrafts,
       })
     }
 
@@ -2157,13 +2186,14 @@ export function AgentsSidebar({
             label,
             projectId: project.id,
             chats: [],
+            drafts: [],
           })
         }
       }
     }
 
     return groups
-  }, [filteredChats, projectsMap, projects])
+  }, [filteredChats, projectsMap, projects, drafts])
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2320,6 +2350,10 @@ export function AgentsSidebar({
 
   const handleNewAgent = () => {
     triggerHaptic("light")
+    // Bump the reset counter first so an in-progress draft in the current
+    // NewChatForm gets persisted via its unmount cleanup (markDraftVisible)
+    // and a fresh blank form is mounted, even when already on the new chat view.
+    requestNewChatFormReset()
     setSelectedChatId(null)
     setSelectedDraftId(null) // Clear selected draft so form starts empty
     setShowNewChatForm(true) // Explicitly show new chat form
@@ -2927,6 +2961,25 @@ export function AgentsSidebar({
                       }}
                       className="overflow-hidden"
                     >
+                      {/* In-progress drafts for this project — clicking restores the text */}
+                      {group.drafts.length > 0 && group.drafts.map((draft) => (
+                        <DraftItem
+                          key={draft.id}
+                          draftId={draft.id}
+                          draftText={draft.text}
+                          draftUpdatedAt={draft.updatedAt}
+                          projectGitOwner={draft.project?.gitOwner}
+                          projectGitProvider={draft.project?.gitProvider}
+                          projectGitRepo={draft.project?.gitRepo}
+                          projectName={draft.project?.name}
+                          isSelected={selectedDraftId === draft.id}
+                          isMultiSelectMode={isMultiSelectMode}
+                          showIcon={showWorkspaceIcon}
+                          onSelect={handleDraftSelect}
+                          onDelete={handleDeleteDraft}
+                          formatTime={formatTime}
+                        />
+                      ))}
                       {group.chats.length > 0 && group.chats.map((chat) => {
                         const isSelected = selectedChatId === chat.id
                         const isLoading = loadingChatIds.has(chat.id)

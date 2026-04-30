@@ -45,6 +45,18 @@ export const selectedDraftIdAtom = atom<string | null>(null)
 // Set to true when "New Workspace" is clicked
 export const showNewChatFormAtom = atom<boolean>(true)
 
+// Counter that increments every time the user requests a fresh new chat form
+// (e.g. clicks the "+" button or invokes Cmd+N) while already in the new chat view.
+// Used as part of the NewChatForm key to force a remount so the existing draft
+// is preserved (via the unmount cleanup that calls markDraftVisible) and the user
+// gets a clean blank form. Not persisted — resets on reload.
+export const newChatFormResetCounterAtom = atom<number>(0)
+
+// Write-only atom that bumps the reset counter. Use via useSetAtom().
+export const requestNewChatFormResetAtom = atom(null, (get, set) => {
+  set(newChatFormResetCounterAtom, get(newChatFormResetCounterAtom) + 1)
+})
+
 // When true, suppress auto-focus on chat input (e.g. during sidebar keyboard navigation)
 export const suppressInputFocusAtom = atom<boolean>(false)
 

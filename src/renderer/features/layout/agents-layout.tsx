@@ -21,7 +21,7 @@ import {
   customHotkeysAtom,
   betaKanbanEnabledAtom,
 } from "../../lib/atoms"
-import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, fileSearchDialogOpenAtom } from "../agents/atoms"
+import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, fileSearchDialogOpenAtom, requestNewChatFormResetAtom } from "../agents/atoms"
 import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
 import { toggleSearchAtom } from "../agents/search"
@@ -106,6 +106,7 @@ export function AgentsLayout() {
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
   const setSelectedDraftId = useSetAtom(selectedDraftIdAtom)
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const requestNewChatFormReset = useSetAtom(requestNewChatFormResetAtom)
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const setAnthropicOnboardingCompleted = useSetAtom(
@@ -282,6 +283,7 @@ export function AgentsLayout() {
     setSelectedChatId,
     setSelectedDraftId,
     setShowNewChatForm,
+    requestNewChatFormReset,
     setDesktopView,
     setSidebarOpen,
     setSettingsActiveTab,

@@ -18,6 +18,7 @@ import {
   agentsPreviewSidebarOpenAtom,
   agentsSidebarOpenAtom,
   desktopViewAtom,
+  newChatFormResetCounterAtom,
 } from "../atoms"
 import {
   selectedTeamIdAtom,
@@ -72,6 +73,7 @@ export function AgentsContent() {
   const chatSourceMode = useAtomValue(chatSourceModeAtom)
   const selectedDraftId = useAtomValue(selectedDraftIdAtom)
   const showNewChatForm = useAtomValue(showNewChatFormAtom)
+  const newChatResetCounter = useAtomValue(newChatFormResetCounterAtom)
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const [betaAutomationsEnabled, setBetaAutomationsEnabled] = useAtom(betaAutomationsEnabledAtom)
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)
@@ -895,6 +897,7 @@ export function AgentsContent() {
               // NewChatForm for creating new agent
               <div className="h-full flex flex-col relative overflow-hidden">
                 <NewChatForm
+                  key={`new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`}
                   isMobileFullscreen={true}
                   onBackToChats={() => setMobileViewMode("chats")}
                 />
@@ -923,9 +926,9 @@ export function AgentsContent() {
                 : betaAutomationsEnabled && desktopView === "automations-detail" ? "automations-detail"
                 : betaAutomationsEnabled && desktopView === "inbox" ? "inbox"
                 : selectedChatId ? `chat-${chatSourceMode}-${selectedChatId}`
-                : selectedDraftId || showNewChatForm ? `new-chat-${newChatFormKeyRef.current}`
+                : selectedDraftId || showNewChatForm ? `new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`
                 : betaKanbanEnabled ? "kanban"
-                : `new-chat-${newChatFormKeyRef.current}`
+                : `new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`
               }
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -954,13 +957,13 @@ export function AgentsContent() {
                 </div>
               ) : selectedDraftId || showNewChatForm ? (
                 <div className="h-full flex flex-col relative overflow-hidden">
-                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
+                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`} />
                 </div>
               ) : betaKanbanEnabled ? (
                 <KanbanView />
               ) : (
                 <div className="h-full flex flex-col relative overflow-hidden">
-                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}`} />
+                  <NewChatForm key={`new-chat-${newChatFormKeyRef.current}-${newChatResetCounter}`} />
                 </div>
               )}
             </motion.div>
