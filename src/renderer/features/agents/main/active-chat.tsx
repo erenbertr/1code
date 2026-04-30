@@ -275,6 +275,8 @@ const ChatViewInner = memo(function ChatViewInner({
   workspaceName,
   workspaceBranch,
   workspaceRepoName,
+  onCommitAndPush,
+  isCommittingAndPush = false,
 }: {
   chat: Chat<any>
   subChatId: string
@@ -306,6 +308,8 @@ const ChatViewInner = memo(function ChatViewInner({
   workspaceName?: string | null
   workspaceBranch?: string | null
   workspaceRepoName?: string | null
+  onCommitAndPush?: (filePaths: string[]) => void
+  isCommittingAndPush?: boolean
 }) {
   const hasTriggeredRenameRef = useRef(false)
   const hasTriggeredAutoGenerateRef = useRef(false)
@@ -3110,6 +3114,8 @@ const ChatViewInner = memo(function ChatViewInner({
                   worktreePath={projectPath}
                   onStop={handleStop}
                   hasQueueCardAbove={queue.length > 0}
+                  onCommitAndPush={projectPath ? onCommitAndPush : undefined}
+                  isCommittingAndPushing={isCommittingAndPush}
                 />
               )}
             </div>
@@ -6031,6 +6037,8 @@ Make sure to preserve all functionality from both branches when resolving confli
                               workspaceName={agentChat?.name ?? null}
                               workspaceBranch={agentChat?.branch ?? null}
                               workspaceRepoName={(agentChat as any)?.project?.gitRepo || (agentChat as any)?.project?.name || null}
+                              onCommitAndPush={handleCommitAndPush}
+                              isCommittingAndPush={isCommittingCombined}
                             />
                           </RenderErrorBoundary>
                         </div>
@@ -6087,6 +6095,8 @@ Make sure to preserve all functionality from both branches when resolving confli
                                   workspaceName={agentChat?.name ?? null}
                                   workspaceBranch={agentChat?.branch ?? null}
                                   workspaceRepoName={(agentChat as any)?.project?.gitRepo || (agentChat as any)?.project?.name || null}
+                                  onCommitAndPush={handleCommitAndPush}
+                                  isCommittingAndPush={isCommittingCombined}
                                 />
                               </RenderErrorBoundary>
                             </div>
@@ -6156,6 +6166,8 @@ Make sure to preserve all functionality from both branches when resolving confli
                         workspaceName={agentChat?.name ?? null}
                         workspaceBranch={agentChat?.branch ?? null}
                         workspaceRepoName={(agentChat as any)?.project?.gitRepo || (agentChat as any)?.project?.name || null}
+                        onCommitAndPush={handleCommitAndPush}
+                        isCommittingAndPush={isCommittingCombined}
                       />
                     </RenderErrorBoundary>
                   </div>

@@ -26,6 +26,7 @@ import { execWithShellEnv } from "../../git/shell-env"
 import { applyRollbackStash } from "../../git/stash"
 import { checkInternetConnection, checkOllamaStatus } from "../../ollama"
 import { terminalManager } from "../../terminal/manager"
+import { getExistingClaudeToken } from "../../claude-token"
 import { publicProcedure, router } from "../index"
 
 type WorktreeSetupFailurePayload = {
@@ -143,6 +144,101 @@ Title:`
  * @param deletions - Lines deleted
  * @param model - Optional model to use (if not provided, uses recommended model)
  */
+/**
+ * Generate a commit message using the local Claude Code OAuth token.
+ * Calls Anthropic's /v1/messages directly with the OAuth bearer token,
+ * so we get the same model the user is already chatting with — no extra binary
+ * spawn, no 21st.dev round-trip.
+ *
+ * Returns null when no token is available, the request fails, or the response
+ * doesn't yield a usable single-line commit message — caller falls through.
+ */
+async function generateCommitMessageWithClaudeOAuth(
+  diff: string,
+  fileCount: number,
+  additions: number,
+  deletions: number,
+  fileNames: string[],
+): Promise<string | null> {
+  try {
+    const token = getExistingClaudeToken()
+    if (!token) {
+      return null
+    }
+
+    const fileList = fileNames.slice(0, 20).join("\n")
+    const prompt = `You are generating a Conventional Commits message for a focused set of files in a single working session.
+
+Rules:
+- Output EXACTLY ONE LINE. No code fences, no quotes, no preface.
+- Format: <type>(<optional-scope>): <imperative summary>
+- Types: feat, fix, refactor, perf, docs, style, test, chore, build, ci
+- <= 72 chars total. Imperative mood ("add", not "added"). Lowercase after the colon.
+- Describe WHAT changed and WHY in plain language. Reference the actual change, not the file count.
+- Never write generic stubs like "update X files" or "various changes".
+
+Stats: ${fileCount} file${fileCount === 1 ? "" : "s"}, +${additions}/-${deletions} lines.
+
+Files:
+${fileList}
+
+Diff (truncated):
+${diff.slice(0, 8000)}
+
+Commit message:`
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 120,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    })
+
+    if (!response.ok) {
+      console.error(
+        "[generateCommitMessage] Claude OAuth request failed:",
+        response.status,
+        await response.text().catch(() => ""),
+      )
+      return null
+    }
+
+    const data = (await response.json()) as {
+      content?: Array<{ type?: string; text?: string }>
+    }
+    const text = data.content?.find((b) => b.type === "text")?.text?.trim()
+    if (!text) {
+      return null
+    }
+
+    const firstLine = text
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0)
+    if (!firstLine) {
+      return null
+    }
+
+    // Strip stray surrounding backticks/quotes if the model wrapped the line.
+    const cleaned = firstLine.replace(/^[`"']+|[`"']+$/g, "").trim()
+    if (cleaned.length > 0 && cleaned.length <= 200) {
+      return cleaned
+    }
+    return null
+  } catch (error) {
+    console.error("[generateCommitMessage] Claude OAuth error:", error)
+    return null
+  }
+}
+
 async function generateCommitMessageWithOllama(
   diff: string,
   fileCount: number,
@@ -1291,6 +1387,27 @@ export const chatsRouter = router({
         console.log("[generateCommitMessage] Ollama failed, using heuristic fallback")
         // Fall through to heuristic fallback below
       } else {
+        // Online - prefer the local Claude Code OAuth token so the same model
+        // the user is chatting with writes the commit message.
+        const fileNamesForPrompt = files.map((f) =>
+          f.newPath !== "/dev/null" ? f.newPath : f.oldPath,
+        )
+        const claudeMessage = await generateCommitMessageWithClaudeOAuth(
+          filteredDiff,
+          files.length,
+          additions,
+          deletions,
+          fileNamesForPrompt,
+        )
+        if (claudeMessage) {
+          console.log(
+            "[generateCommitMessage] Generated via Claude OAuth:",
+            claudeMessage,
+          )
+          return { message: claudeMessage }
+        }
+
+
         // Online - call web API to generate commit message
         let apiError: string | null = null
         try {
