@@ -28,7 +28,7 @@ import {
 } from "../../lib/atoms"
 import { ArchivePopover } from "../agents/ui/archive-popover"
 import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Check } from "lucide-react"
-import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconTerminal2 } from "@tabler/icons-react"
+import { IconChevronRight, IconChevronDown, IconChevronUp, IconArchive, IconPlus, IconFolder, IconFolderOpen, IconSortDescending, IconSettings, IconX, IconSparkles, IconEdit, IconFolderPlus, IconSearch, IconArrowsDiagonalMinimize2, IconDots, IconPointFilled, IconLogin, IconLayoutSidebarLeftCollapse, IconTerminal2, IconCode } from "@tabler/icons-react"
 import { Skeleton } from "../../components/ui/skeleton"
 import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
@@ -2883,6 +2883,46 @@ export function AgentsSidebar({
                       </span>
                       {group.projectId && (
                         <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const projectPath = projects?.find(p => p.id === group.projectId)?.path
+                              if (!projectPath) {
+                                toast.error("Project path not found")
+                                return
+                              }
+                              window.desktopApi.openFolder(projectPath).then((result) => {
+                                if (!result?.success) {
+                                  toast.error(result?.error || "Failed to open folder")
+                                }
+                              })
+                            }}
+                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            aria-label="Reveal in file manager"
+                          >
+                            <IconFolderOpen size={12} stroke={2} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const projectPath = projects?.find(p => p.id === group.projectId)?.path
+                              if (!projectPath) {
+                                toast.error("Project path not found")
+                                return
+                              }
+                              window.desktopApi.openVSCode(projectPath).then((result) => {
+                                if (!result?.success) {
+                                  toast.error(result?.error || "Failed to open VS Code")
+                                }
+                              })
+                            }}
+                            className="flex-shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/25 hover:text-muted-foreground/60 opacity-0 group-hover/project-header:opacity-100 transition-opacity duration-150"
+                            aria-label="Open in VS Code"
+                          >
+                            <IconCode size={12} stroke={2} />
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {

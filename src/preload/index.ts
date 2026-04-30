@@ -136,6 +136,16 @@ contextBridge.exposeInMainWorld("desktopApi", {
       success: boolean
       error?: string
     }>,
+  openFolder: (path: string) =>
+    ipcRenderer.invoke("shell:open-folder", path) as Promise<{
+      success: boolean
+      error?: string
+    }>,
+  openVSCode: (path: string) =>
+    ipcRenderer.invoke("shell:open-vscode", path) as Promise<{
+      success: boolean
+      error?: string
+    }>,
 
   // API base URL (for fetch requests to server)
   getApiBaseUrl: () => ipcRenderer.invoke("app:get-api-base-url"),
@@ -339,6 +349,8 @@ export interface DesktopApi {
   showNotification: (options: { title: string; body: string }) => Promise<void>
   openExternal: (url: string) => Promise<void>
   openTerminal: (path: string) => Promise<{ success: boolean; error?: string }>
+  openFolder: (path: string) => Promise<{ success: boolean; error?: string }>
+  openVSCode: (path: string) => Promise<{ success: boolean; error?: string }>
   getApiBaseUrl: () => Promise<string>
   clipboardWrite: (text: string) => Promise<void>
   clipboardRead: () => Promise<string>
