@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
+import type { DragEvent } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { IconFolder, IconPlus, IconLayoutGrid, IconSettings } from "@tabler/icons-react"
 import { trpc } from "../../lib/trpc"
@@ -114,6 +115,18 @@ export function ProjectsRail() {
     return [...projects] as ProjectRow[]
   }, [projects])
 
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{
+    id: string
+    position: "before" | "after"
+  } | null>(null)
+
+  const reorder = trpc.projects.reorder.useMutation({
+    onError: () => {
+      utils.projects.list.invalidate()
+    },
+  })
+
   const openFolder = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
       if (!project) return
@@ -179,6 +192,94 @@ export function ProjectsRail() {
     setSidebarOpen(true)
   }, [setDesktopView, setSidebarOpen])
 
+  const handleDragStart = useCallback(
+    (e: DragEvent<HTMLDivElement>, id: string) => {
+      setDraggedId(id)
+      e.dataTransfer.effectAllowed = "move"
+      try {
+        e.dataTransfer.setData("text/plain", id)
+      } catch {
+        // noop — some browsers throw on setData during certain drag phases
+      }
+    },
+    [],
+  )
+
+  const handleDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>, id: string) => {
+      if (!draggedId || draggedId === id) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      const rect = e.currentTarget.getBoundingClientRect()
+      const position: "before" | "after" =
+        e.clientY - rect.top < rect.height / 2 ? "before" : "after"
+      setDropTarget((prev) =>
+        prev && prev.id === id && prev.position === position
+          ? prev
+          : { id, position },
+      )
+    },
+    [draggedId],
+  )
+
+  const handleDragLeave = useCallback(
+    (e: DragEvent<HTMLDivElement>, id: string) => {
+      // Only clear when leaving the wrapper, not when entering child nodes
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+      setDropTarget((prev) => (prev?.id === id ? null : prev))
+    },
+    [],
+  )
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedId(null)
+    setDropTarget(null)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>, targetId: string) => {
+      e.preventDefault()
+      const draggingId = draggedId
+      const target = dropTarget
+      setDraggedId(null)
+      setDropTarget(null)
+      if (!draggingId || draggingId === targetId || !target) return
+
+      const current = sortedProjects
+      const draggedItem = current.find((p) => p.id === draggingId)
+      if (!draggedItem) return
+
+      const without = current.filter((p) => p.id !== draggingId)
+      const targetIdx = without.findIndex((p) => p.id === targetId)
+      if (targetIdx === -1) return
+
+      const insertIdx =
+        target.position === "before" ? targetIdx : targetIdx + 1
+      const newOrderIds = [
+        ...without.slice(0, insertIdx).map((p) => p.id),
+        draggingId,
+        ...without.slice(insertIdx).map((p) => p.id),
+      ]
+
+      // Compare against current order to avoid no-op mutations
+      const sameAsCurrent = newOrderIds.every(
+        (id, i) => current[i]?.id === id,
+      )
+      if (sameAsCurrent) return
+
+      utils.projects.list.setData(undefined, (old) => {
+        if (!old) return old
+        const map = new Map(old.map((p) => [p.id, p]))
+        return newOrderIds
+          .map((id) => map.get(id))
+          .filter((p): p is NonNullable<typeof p> => p != null)
+      })
+
+      reorder.mutate({ orderedIds: newOrderIds })
+    },
+    [draggedId, dropTarget, sortedProjects, utils, reorder],
+  )
+
   const isAllActive = selectedProject == null
 
   return (
@@ -207,41 +308,71 @@ export function ProjectsRail() {
           const label = projectLabel(project)
           const initial = projectInitial(project)
           const accent = project.accentColor ?? undefined
+          const isDragging = draggedId === project.id
+          const showBefore =
+            dropTarget?.id === project.id && dropTarget.position === "before"
+          const showAfter =
+            dropTarget?.id === project.id && dropTarget.position === "after"
           return (
-            <RailButton
+            <div
               key={project.id}
-              active={isActive}
-              onClick={() => handleSelectProject(project)}
-              tooltip={label}
-              ariaLabel={`Open project ${label}`}
-            >
-              {project.iconPath ? (
-                <span
-                  className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md"
-                  style={{ backgroundColor: accent }}
-                >
-                  <img
-                    src={`file://${project.iconPath}`}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                  />
-                </span>
-              ) : (
-                <span
-                  className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide",
-                    "border border-foreground/10",
-                  )}
-                  style={{
-                    backgroundColor: accent ?? "var(--color-muted, rgba(255,255,255,0.04))",
-                    color: accent ? "#fff" : undefined,
-                  }}
-                >
-                  {initial || <IconFolder className="h-4 w-4" stroke={1.75} />}
-                </span>
+              draggable
+              onDragStart={(e) => handleDragStart(e, project.id)}
+              onDragOver={(e) => handleDragOver(e, project.id)}
+              onDragLeave={(e) => handleDragLeave(e, project.id)}
+              onDragEnd={handleDragEnd}
+              onDrop={(e) => handleDrop(e, project.id)}
+              className={cn(
+                "relative cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-40",
               )}
-            </RailButton>
+            >
+              {showBefore && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -top-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
+                />
+              )}
+              <RailButton
+                active={isActive}
+                onClick={() => handleSelectProject(project)}
+                tooltip={label}
+                ariaLabel={`Open project ${label}`}
+              >
+                {project.iconPath ? (
+                  <span
+                    className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md"
+                    style={{ backgroundColor: accent }}
+                  >
+                    <img
+                      src={`file://${project.iconPath}`}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      draggable={false}
+                    />
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide",
+                      "border border-foreground/10",
+                    )}
+                    style={{
+                      backgroundColor: accent ?? "var(--color-muted, rgba(255,255,255,0.04))",
+                      color: accent ? "#fff" : undefined,
+                    }}
+                  >
+                    {initial || <IconFolder className="h-4 w-4" stroke={1.75} />}
+                  </span>
+                )}
+              </RailButton>
+              {showAfter && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -bottom-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
+                />
+              )}
+            </div>
           )
         })}
 

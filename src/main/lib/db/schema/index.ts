@@ -24,6 +24,8 @@ export const projects = sqliteTable("projects", {
   iconPath: text("icon_path"),
   // Custom accent color for visual differentiation (hex string e.g. "#ef4444")
   accentColor: text("accent_color"),
+  // User-defined ordering in the projects rail (lower = earlier). Default 0; ties fall back to updatedAt DESC.
+  sortOrder: integer("sort_order").notNull().default(0),
 })
 
 export const projectsRelations = relations(projects, ({ many }) => ({

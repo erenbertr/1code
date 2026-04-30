@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { router, publicProcedure } from "../index"
 import { getDatabase, projects } from "../../db"
-import { eq, desc } from "drizzle-orm"
+import { eq, asc, desc } from "drizzle-orm"
 import { dialog, BrowserWindow, app } from "electron"
 import { basename, join } from "path"
 import { exec } from "node:child_process"
@@ -25,12 +25,36 @@ export const projectsRouter = router({
   }),
 
   /**
-   * List all projects
+   * List all projects.
+   * Order: explicit sort_order ASC first; ties fall back to most-recently updated.
    */
   list: publicProcedure.query(() => {
     const db = getDatabase()
-    return db.select().from(projects).orderBy(desc(projects.updatedAt)).all()
+    return db
+      .select()
+      .from(projects)
+      .orderBy(asc(projects.sortOrder), desc(projects.updatedAt))
+      .all()
   }),
+
+  /**
+   * Reorder projects in the rail. Accepts the full ordered list of project IDs.
+   * Each id's index becomes its new sort_order so subsequent list() reflects it.
+   */
+  reorder: publicProcedure
+    .input(z.object({ orderedIds: z.array(z.string().min(1)) }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      db.transaction((tx) => {
+        input.orderedIds.forEach((id, index) => {
+          tx.update(projects)
+            .set({ sortOrder: index })
+            .where(eq(projects.id, id))
+            .run()
+        })
+      })
+      return { success: true as const }
+    }),
 
   /**
    * Get a single project by ID
