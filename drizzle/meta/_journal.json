@@ -85,6 +85,13 @@
       "when": 1778264122367,
       "tag": "0011_reflective_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1778309342630,
+      "tag": "0012_gigantic_crystal",
+      "breakpoints": true
     }
   ]
 }

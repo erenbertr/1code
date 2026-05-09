@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `show_in_rail` integer DEFAULT true NOT NULL;
