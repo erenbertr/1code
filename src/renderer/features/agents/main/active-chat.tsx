@@ -3672,6 +3672,15 @@ export function ChatView({
   // Track changed files across all sub-chats for filtering
   const subChatFiles = useAtomValue(subChatFilesAtom)
 
+  // Persist "viewed" state so the projects list can show unseen badges that
+  // survive app restarts. Fire-and-forget; the local atom clears immediately.
+  const markChatViewed = trpc.chats.markViewed.useMutation({
+    onSuccess: () => {
+      trpcUtilsLocal.projects.listWithStatus.invalidate()
+      trpcUtilsLocal.chats.list.invalidate()
+    },
+  })
+
   // Clear "unseen changes" when chat is opened
   useEffect(() => {
     setUnseenChanges((prev: Set<string>) => {
@@ -3682,6 +3691,9 @@ export function ChatView({
       }
       return prev
     })
+    markChatViewed.mutate({ id: chatId })
+    // markChatViewed identity is stable across renders; intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId, setUnseenChanges])
 
   // Get sub-chat state from store (reactive subscription for tabsToRender)

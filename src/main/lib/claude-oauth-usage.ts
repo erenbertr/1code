@@ -1,9 +1,5 @@
 import { app } from "electron"
-import {
-  getExistingClaudeCredentials,
-  refreshClaudeToken,
-  isTokenExpired,
-} from "./claude-token"
+import { getExistingClaudeCredentials, getValidExistingClaudeToken } from "./claude-token"
 
 export type OAuthUsageWindow = {
   utilization: number | null
@@ -131,23 +127,9 @@ async function callUsageEndpoint(accessToken: string): Promise<Response> {
 
 export async function fetchClaudeOAuthUsage(): Promise<ClaudeOAuthUsageResult> {
   const creds = getExistingClaudeCredentials()
-  if (!creds?.accessToken) {
+  const accessToken = await getValidExistingClaudeToken()
+  if (!creds?.accessToken || !accessToken) {
     return { ok: false, reason: "no_credentials" }
-  }
-
-  let accessToken = creds.accessToken
-
-  if (isTokenExpired(creds.expiresAt) && creds.refreshToken) {
-    try {
-      const refreshed = await refreshClaudeToken(creds.refreshToken)
-      accessToken = refreshed.accessToken
-    } catch (error) {
-      return {
-        ok: false,
-        reason: "unauthorized",
-        message: error instanceof Error ? error.message : "Token refresh failed",
-      }
-    }
   }
 
   let response: Response
@@ -158,20 +140,6 @@ export async function fetchClaudeOAuthUsage(): Promise<ClaudeOAuthUsageResult> {
       ok: false,
       reason: "error",
       message: error instanceof Error ? error.message : "Network error",
-    }
-  }
-
-  if (response.status === 401 && creds.refreshToken) {
-    try {
-      const refreshed = await refreshClaudeToken(creds.refreshToken)
-      accessToken = refreshed.accessToken
-      response = await callUsageEndpoint(accessToken)
-    } catch (error) {
-      return {
-        ok: false,
-        reason: "unauthorized",
-        message: error instanceof Error ? error.message : "Token refresh failed",
-      }
     }
   }
 

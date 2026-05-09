@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm"
 import { safeStorage } from "electron"
 import { z } from "zod"
 import { getAuthManager } from "../../../index"
-import { getExistingClaudeToken } from "../../claude-token"
+import { getValidExistingClaudeToken } from "../../claude-token"
 import { anthropicAccounts, anthropicSettings, claudeCodeCredentials, getDatabase } from "../../db"
 import { createId } from "../../db/utils"
 import { publicProcedure, router } from "../index"
@@ -41,7 +41,7 @@ export const anthropicAccountsRouter = router({
   /**
    * List all stored Anthropic accounts
    */
-  list: publicProcedure.query(() => {
+  list: publicProcedure.query(async () => {
     const db = getDatabase()
 
     try {
@@ -95,7 +95,7 @@ export const anthropicAccountsRouter = router({
     // Final fallback: surface the local Claude Code CLI credential
     // (macOS Keychain / ~/.claude/.credentials.json) so the user sees
     // an active connection in Settings even though it's not in our DB.
-    if (getExistingClaudeToken()?.trim()) {
+    if ((await getValidExistingClaudeToken())?.trim()) {
       return [{
         id: SYSTEM_KEYCHAIN_ACCOUNT_ID,
         email: null,
@@ -112,7 +112,7 @@ export const anthropicAccountsRouter = router({
   /**
    * Get currently active account info
    */
-  getActive: publicProcedure.query(() => {
+  getActive: publicProcedure.query(async () => {
     const db = getDatabase()
 
     try {
@@ -168,7 +168,7 @@ export const anthropicAccountsRouter = router({
     }
 
     // Final fallback: local Claude Code CLI credential
-    if (getExistingClaudeToken()?.trim()) {
+    if ((await getValidExistingClaudeToken())?.trim()) {
       return {
         id: SYSTEM_KEYCHAIN_ACCOUNT_ID,
         email: null,

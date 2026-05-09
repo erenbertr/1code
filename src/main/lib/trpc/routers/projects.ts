@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { router, publicProcedure } from "../index"
-import { getDatabase, projects } from "../../db"
-import { eq, asc, desc } from "drizzle-orm"
+import { getDatabase, projects, chats, subChats } from "../../db"
+import { eq, asc, desc, isNull } from "drizzle-orm"
 import { dialog, BrowserWindow, app } from "electron"
 import { basename, join } from "path"
 import { exec } from "node:child_process"
@@ -35,6 +35,107 @@ export const projectsRouter = router({
       .from(projects)
       .orderBy(asc(projects.sortOrder), desc(projects.updatedAt))
       .all()
+  }),
+
+  /**
+   * List all projects with per-project chat status counts:
+   * - inProgressCount: chats where any sub-chat is currently streaming
+   *   (sub_chats.stream_id IS NOT NULL).
+   * - unseenCount: non-archived, non-streaming chats whose latest activity
+   *   (max of chat.updated_at and sub_chats.updated_at) is newer than the
+   *   user's last view (chats.last_viewed_at). NULL last_viewed_at counts as 0.
+   *
+   * Aggregation is done in JS on top of three small selects to keep the SQL
+   * portable across SQLite versions.
+   */
+  listWithStatus: publicProcedure.query(() => {
+    const db = getDatabase()
+
+    const projectList = db
+      .select()
+      .from(projects)
+      .orderBy(asc(projects.sortOrder), desc(projects.updatedAt))
+      .all()
+
+    const activeChats = db
+      .select({
+        id: chats.id,
+        projectId: chats.projectId,
+        updatedAt: chats.updatedAt,
+        lastViewedAt: chats.lastViewedAt,
+      })
+      .from(chats)
+      .where(isNull(chats.archivedAt))
+      .all()
+    const activeChatIds = new Set(activeChats.map((c) => c.id))
+
+    const subChatRows = db
+      .select({
+        chatId: subChats.chatId,
+        streamId: subChats.streamId,
+        updatedAt: subChats.updatedAt,
+      })
+      .from(subChats)
+      .all()
+
+    const perChat = new Map<
+      string,
+      { hasStream: boolean; latestActivityMs: number }
+    >()
+    for (const sc of subChatRows) {
+      if (!activeChatIds.has(sc.chatId)) continue
+      const cur = perChat.get(sc.chatId) ?? {
+        hasStream: false,
+        latestActivityMs: 0,
+      }
+      const next = {
+        hasStream: cur.hasStream || sc.streamId != null,
+        latestActivityMs: Math.max(
+          cur.latestActivityMs,
+          sc.updatedAt ? sc.updatedAt.getTime() : 0,
+        ),
+      }
+      perChat.set(sc.chatId, next)
+    }
+
+    const perProject = new Map<
+      string,
+      { inProgressCount: number; unseenCount: number }
+    >()
+    for (const c of activeChats) {
+      const status = perChat.get(c.id) ?? {
+        hasStream: false,
+        latestActivityMs: 0,
+      }
+      const chatActivityMs = Math.max(
+        status.latestActivityMs,
+        c.updatedAt ? c.updatedAt.getTime() : 0,
+      )
+      const lastViewedMs = c.lastViewedAt ? c.lastViewedAt.getTime() : 0
+      const isUnseen = !status.hasStream && chatActivityMs > lastViewedMs
+
+      const cur = perProject.get(c.projectId) ?? {
+        inProgressCount: 0,
+        unseenCount: 0,
+      }
+      const next = {
+        inProgressCount: cur.inProgressCount + (status.hasStream ? 1 : 0),
+        unseenCount: cur.unseenCount + (isUnseen ? 1 : 0),
+      }
+      perProject.set(c.projectId, next)
+    }
+
+    return projectList.map((p) => {
+      const counts = perProject.get(p.id) ?? {
+        inProgressCount: 0,
+        unseenCount: 0,
+      }
+      return {
+        ...p,
+        inProgressCount: counts.inProgressCount,
+        unseenCount: counts.unseenCount,
+      }
+    })
   }),
 
   /**

@@ -3,7 +3,7 @@ import { safeStorage, shell } from "electron"
 import { z } from "zod"
 import { getAuthManager } from "../../../index"
 import { getClaudeShellEnvironment } from "../../claude"
-import { getExistingClaudeToken } from "../../claude-token"
+import { getValidExistingClaudeToken } from "../../claude-token"
 import { getApiUrl } from "../../config"
 import {
   anthropicAccounts,
@@ -112,7 +112,7 @@ export const claudeCodeRouter = router({
    * If true, user can skip OAuth onboarding
    * Based on PR #29 by @sa4hnd
    */
-  hasExistingCliConfig: publicProcedure.query(() => {
+  hasExistingCliConfig: publicProcedure.query(async () => {
     const shellEnv = getClaudeShellEnvironment()
     const hasEnvKey = !!(
       shellEnv.ANTHROPIC_API_KEY ||
@@ -121,7 +121,7 @@ export const claudeCodeRouter = router({
     )
     // Also detect locally-installed Claude Code subscription credentials
     // (macOS Keychain "Claude Code-credentials" or ~/.claude/.credentials.json).
-    const hasLocalCreds = !!getExistingClaudeToken()
+    const hasLocalCreds = !!(await getValidExistingClaudeToken())
     const hasConfig = hasEnvKey || hasLocalCreds
     return {
       hasConfig,
@@ -136,7 +136,7 @@ export const claudeCodeRouter = router({
    * Check if user has Claude Code connected (local check)
    * Now uses multi-account system - checks for active account
    */
-  getIntegration: publicProcedure.query(() => {
+  getIntegration: publicProcedure.query(async () => {
     const db = getDatabase()
 
     // First try multi-account system
@@ -181,7 +181,7 @@ export const claudeCodeRouter = router({
 
     // Final fallback: user's locally-installed Claude Code credentials
     // (macOS Keychain / ~/.claude/.credentials.json)
-    const localToken = getExistingClaudeToken()?.trim() ?? null
+    const localToken = (await getValidExistingClaudeToken())?.trim() ?? null
     if (localToken) {
       return {
         isConnected: true,
@@ -339,16 +339,16 @@ export const claudeCodeRouter = router({
   /**
    * Check for existing Claude token in system credentials
    */
-  getSystemToken: publicProcedure.query(() => {
-    const token = getExistingClaudeToken()?.trim() ?? null
+  getSystemToken: publicProcedure.query(async () => {
+    const token = (await getValidExistingClaudeToken())?.trim() ?? null
     return { token }
   }),
 
   /**
    * Import Claude token from system credentials
    */
-  importSystemToken: publicProcedure.mutation(() => {
-    const token = getExistingClaudeToken()?.trim()
+  importSystemToken: publicProcedure.mutation(async () => {
+    const token = (await getValidExistingClaudeToken())?.trim()
     if (!token) {
       throw new Error("No existing Claude token found")
     }

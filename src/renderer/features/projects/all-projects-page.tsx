@@ -17,6 +17,7 @@ import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { Button } from "../../components/ui/button"
 import { Input } from "../../components/ui/input"
+import { LoadingDot } from "../../components/ui/icons"
 import { ProjectIcon } from "../../components/ui/project-icon"
 import {
   DropdownMenu,
@@ -49,6 +50,8 @@ type Project = {
   gitRemoteUrl: string | null
   gitProvider: string | null
   updatedAt?: Date | null
+  inProgressCount?: number
+  unseenCount?: number
 }
 
 function projectLabel(project: Pick<Project, "name" | "gitOwner" | "gitRepo">) {
@@ -56,6 +59,45 @@ function projectLabel(project: Pick<Project, "name" | "gitOwner" | "gitRepo">) {
     return `${project.gitOwner}/${project.gitRepo}`
   }
   return project.name
+}
+
+function ProjectStatusBadges({
+  inProgressCount,
+  unseenCount,
+}: {
+  inProgressCount: number
+  unseenCount: number
+}) {
+  if (inProgressCount === 0 && unseenCount === 0) return null
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-1.5"
+      aria-label={`${inProgressCount} in progress, ${unseenCount} unseen`}
+    >
+      {inProgressCount > 0 && (
+        <span
+          title={`${inProgressCount} chat${inProgressCount === 1 ? "" : "s"} in progress`}
+          className="flex items-center gap-1 rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+        >
+          <LoadingDot
+            isLoading={true}
+            className="h-3 w-3 text-muted-foreground"
+          />
+          {inProgressCount}
+        </span>
+      )}
+      {unseenCount > 0 && (
+        <span
+          title={`${unseenCount} chat${unseenCount === 1 ? "" : "s"} with unseen updates`}
+          className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {unseenCount}
+        </span>
+      )}
+    </div>
+  )
 }
 
 function ProjectCard({
@@ -135,6 +177,11 @@ function ProjectCard({
           </span>
         </button>
 
+        <ProjectStatusBadges
+          inProgressCount={project.inProgressCount ?? 0}
+          unseenCount={project.unseenCount ?? 0}
+        />
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -195,7 +242,15 @@ function ProjectCard({
 
 export function AllProjectsPage() {
   const utils = trpc.useUtils()
-  const { data: projects, isLoading } = trpc.projects.list.useQuery()
+  const { data: projects, isLoading } = trpc.projects.listWithStatus.useQuery(
+    undefined,
+    {
+      // Light polling so in-progress / unseen badges stay fresh while the
+      // page is open; cheap query (small JS aggregation over local SQLite).
+      refetchInterval: 5000,
+      refetchOnWindowFocus: true,
+    },
+  )
   const setSelectedProject = useSetAtom(selectedProjectAtom)
   const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom)
 
@@ -219,7 +274,7 @@ export function AllProjectsPage() {
   const openFolder = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
       if (!project) return
-      utils.projects.list.invalidate()
+      utils.projects.invalidate()
       setSelectedProject({
         id: project.id,
         name: project.name,
@@ -241,14 +296,14 @@ export function AllProjectsPage() {
 
   const renameProject = trpc.projects.rename.useMutation({
     onSuccess: () => {
-      utils.projects.list.invalidate()
+      utils.projects.invalidate()
     },
     onError: (err) => toast.error(err.message || "Failed to rename project"),
   })
 
   const deleteProject = trpc.projects.delete.useMutation({
     onSuccess: () => {
-      utils.projects.list.invalidate()
+      utils.projects.invalidate()
       utils.chats?.list?.invalidate?.()
       toast.success("Project removed")
     },
@@ -257,7 +312,7 @@ export function AllProjectsPage() {
 
   const refreshGitInfo = trpc.projects.refreshGitInfo.useMutation({
     onSuccess: () => {
-      utils.projects.list.invalidate()
+      utils.projects.invalidate()
       toast.success("Git info refreshed")
     },
     onError: (err) => toast.error(err.message || "Failed to refresh git info"),

@@ -29,7 +29,7 @@ import {
   type ClaudeConfig,
   type McpServerConfig,
 } from "../../claude-config"
-import { getExistingClaudeToken } from "../../claude-token"
+import { getValidExistingClaudeToken } from "../../claude-token"
 import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects as projectsTable, subChats } from "../../db"
 import { createRollbackStash } from "../../git/stash"
 import {
@@ -160,11 +160,11 @@ function decryptToken(encrypted: string): string {
 
 /**
  * Get Claude Code OAuth token.
- * Order: in-app multi-account DB → legacy DB table → local Claude Code keychain
+ * Order: local Claude Code keychain → in-app multi-account DB → legacy DB table
  * (`~/.claude/.credentials.json` or OS keychain entry "Claude Code-credentials").
  * Returns null if no credentials are available anywhere.
  */
-function getClaudeCodeToken(): string | null {
+async function getClaudeCodeToken(): Promise<string | null> {
   try {
     const db = getDatabase()
 
@@ -172,7 +172,7 @@ function getClaudeCodeToken(): string | null {
 
     // Prefer the token maintained by the local Claude Code CLI. The CLI refreshes
     // this credential, while older in-app rows may contain an expired access token.
-    const localToken = getExistingClaudeToken()
+    const localToken = await getValidExistingClaudeToken()
     if (localToken) {
       console.log("[claude-auth] Using local Claude Code credentials from system")
       console.log(
@@ -1009,7 +1009,7 @@ export const claudeRouter = router({
 
             // 2.5. AUTO-FALLBACK: Check internet and switch to Ollama if offline
             // Only check if offline mode is enabled in settings
-            const claudeCodeToken = getClaudeCodeToken()
+            const claudeCodeToken = await getClaudeCodeToken()
             const offlineResult = await checkOfflineFallback(
               input.customConfig,
               claudeCodeToken,
@@ -1413,27 +1413,46 @@ export const claudeRouter = router({
               )
             }
 
-            // Check if user has existing API key or proxy configured in their shell environment
-            // If so, use that instead of OAuth (allows using custom API proxies)
-            // Based on PR #29 by @sa4hnd
-            const hasExistingApiConfig = !!(
-              claudeEnv.ANTHROPIC_API_KEY || claudeEnv.ANTHROPIC_AUTH_TOKEN || claudeEnv.ANTHROPIC_BASE_URL
+            // Explicit custom settings should win. Ambient shell/process Anthropic
+            // variables should not override a working Claude Code login; stale API
+            // keys otherwise make the SDK fail while `claude` works in Terminal.
+            const ambientAnthropicEnvKeys = [
+              "ANTHROPIC_API_KEY",
+              "ANTHROPIC_AUTH_TOKEN",
+              "ANTHROPIC_BASE_URL",
+            ] as const
+            const hasAmbientApiConfig = ambientAnthropicEnvKeys.some(
+              (key) => !!claudeEnv[key],
             )
+            const shouldUseAmbientApiConfig =
+              !finalCustomConfig && !claudeCodeToken && hasAmbientApiConfig
 
-            if (hasExistingApiConfig) {
+            if (claudeCodeToken && !finalCustomConfig) {
+              for (const key of ambientAnthropicEnvKeys) {
+                if (claudeEnv[key]) {
+                  console.log(
+                    `[claude-auth] Ignoring ambient ${key}; using Claude Code OAuth`,
+                  )
+                  delete claudeEnv[key]
+                }
+              }
+            }
+
+            if (shouldUseAmbientApiConfig) {
               console.log(
                 `[claude] Using existing CLI config - API_KEY: ${claudeEnv.ANTHROPIC_API_KEY ? "set" : "not set"}, BASE_URL: ${claudeEnv.ANTHROPIC_BASE_URL || "default"}`,
               )
             }
 
-            // Build final env - only add OAuth token if we have one AND no existing API config
-            // Existing CLI config takes precedence over OAuth
+            // Build final env. A valid Claude Code OAuth token takes precedence
+            // over ambient shell API credentials; explicit custom config was
+            // already applied above and remains in claudeEnv.
             // Typed as Record<string, string> to preserve access to dynamic env vars
             // like ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN
             const finalEnv: Record<string, string> = {
               ...claudeEnv,
               ...(claudeCodeToken &&
-                !hasExistingApiConfig && {
+                !finalCustomConfig && {
                   CLAUDE_CODE_OAUTH_TOKEN: claudeCodeToken,
                 }),
               // Re-enable CLAUDE_CONFIG_DIR now that we properly map MCP configs
@@ -1443,8 +1462,8 @@ export const claudeRouter = router({
             // Log auth method being used
             console.log("[claude-auth] ========== AUTH METHOD USED ==========")
             console.log(
-              "[claude-auth] hasExistingApiConfig:",
-              hasExistingApiConfig,
+              "[claude-auth] shouldUseAmbientApiConfig:",
+              shouldUseAmbientApiConfig,
             )
             console.log(
               "[claude-auth] claudeCodeToken available:",
@@ -1791,6 +1810,10 @@ ${prompt}
                     mcpServers: mcpServersFiltered,
                   }),
                 env: finalEnv,
+                ...(claudeCodeToken &&
+                  !finalCustomConfig && {
+                    getOAuthToken: async () => getValidExistingClaudeToken(),
+                  }),
                 permissionMode:
                   input.mode === "plan"
                     ? ("plan" as const)
@@ -2215,7 +2238,7 @@ ${prompt}
                       // Show OAuth reconnect only when OAuth auth is actually in use.
                       // If API-key auth is active, treat as API auth failure instead.
                       const isApiKeyAuthMode = Boolean(
-                        finalCustomConfig || hasExistingApiConfig,
+                        finalCustomConfig || shouldUseAmbientApiConfig,
                       )
                       if (isApiKeyAuthMode) {
                         errorCategory = "AUTH_FAILURE"

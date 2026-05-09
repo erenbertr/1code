@@ -48,6 +48,10 @@ export const chats = sqliteTable("chats", {
     () => new Date(),
   ),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
+  // Last time the user opened/viewed this chat. Used to compute "unseen" status
+  // at the project level (chat counts as unseen when subChat activity is newer
+  // than this timestamp). Null = never viewed.
+  lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
   // Worktree fields (for git isolation per chat)
   worktreePath: text("worktree_path"),
   branch: text("branch"),

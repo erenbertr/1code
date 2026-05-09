@@ -3016,7 +3016,12 @@ export function AgentsSidebar({
                           const hasPendingPlan = workspacePendingPlans.has(chat.id)
                           const isActive = isLoading || hasPendingQuestion || hasPendingPlan
                           const isPushed = !isActive && pushedChatIds.has(chat.id)
-                          const hasUnseen = !isActive && !isPushed && !isSelected && unseenChanges.has(chat.id)
+                          const hasUnseen =
+                            !isActive &&
+                            !isPushed &&
+                            !isSelected &&
+                            (unseenChanges.has(chat.id) ||
+                              (chat as { isUnseen?: boolean }).isUnseen === true)
 
                           return (
                             <ContextMenu key={chat.id}>

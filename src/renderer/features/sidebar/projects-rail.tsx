@@ -6,12 +6,18 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { IconFolder, IconPlus, IconLayoutGrid, IconSettings } from "@tabler/icons-react"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
+import { LoadingDot } from "../../components/ui/icons"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../../components/ui/tooltip"
-import { selectedProjectAtom, desktopViewAtom } from "../agents/atoms"
+import {
+  selectedProjectAtom,
+  desktopViewAtom,
+  chatsAwaitingAnswerAtom,
+  loadingSubChatsAtom,
+} from "../agents/atoms"
 import {
   agentsSidebarOpenAtom,
   isDesktopAtom,
@@ -33,6 +39,49 @@ type ProjectRow = {
   gitRepo: string | null
   gitRemoteUrl: string | null
   gitProvider: string | null
+  inProgressCount?: number
+  unseenCount?: number
+}
+
+// Each state has its own fixed corner so multiple states are visible at once
+// (e.g. one chat finished + one chat still streaming both render dots).
+//   top-left     → blue: awaiting the user's answer
+//   bottom-left  → green: finished and unseen
+//   bottom-right → loader: in-progress (streaming)
+function StatusDots({
+  inProgress,
+  unseen,
+  awaiting,
+}: {
+  inProgress: boolean
+  unseen: boolean
+  awaiting: boolean
+}) {
+  if (!inProgress && !unseen && !awaiting) return null
+  const halo =
+    "pointer-events-none absolute flex h-3 w-3 items-center justify-center rounded-full bg-background ring-1 ring-border/60"
+  return (
+    <>
+      {awaiting && (
+        <span aria-hidden className={cn(halo, "-top-0.5 -left-0.5")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+        </span>
+      )}
+      {unseen && (
+        <span aria-hidden className={cn(halo, "-bottom-0.5 -left-0.5")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        </span>
+      )}
+      {inProgress && (
+        <span aria-hidden className={cn(halo, "-bottom-0.5 -right-0.5")}>
+          <LoadingDot
+            isLoading={true}
+            className="h-2.5 w-2.5 text-muted-foreground"
+          />
+        </span>
+      )}
+    </>
+  )
 }
 
 function projectInitial(project: Pick<ProjectRow, "name" | "gitRepo">) {
@@ -102,7 +151,22 @@ function RailButton({
 
 export function ProjectsRail() {
   const utils = trpc.useUtils()
-  const { data: projects } = trpc.projects.list.useQuery()
+  const { data: projects } = trpc.projects.listWithStatus.useQuery(undefined, {
+    // Light polling so in-progress / unseen indicators stay fresh while the
+    // app is open. Cheap query (small JS aggregation over local SQLite).
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+  })
+  // Awaiting-answer is tracked in a renderer-only Jotai Set<chatId>. We join
+  // it with the chat→project mapping from chats.list so we can light up the
+  // blue dot on the right project tile.
+  const chatsAwaitingAnswer = useAtomValue(chatsAwaitingAnswerAtom)
+  // Live streaming state lives in renderer memory (Map<subChatId, parentChatId>),
+  // not the DB. The server-side inProgressCount can lag because subChats.streamId
+  // isn't always populated during an active stream — so we OR this in to make
+  // the loader dot reflect the immediate UI state.
+  const loadingSubChats = useAtomValue(loadingSubChatsAtom)
+  const { data: allChats } = trpc.chats.list.useQuery({})
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
   const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
@@ -123,22 +187,23 @@ export function ProjectsRail() {
 
   const reorder = trpc.projects.reorder.useMutation({
     onError: () => {
-      utils.projects.list.invalidate()
+      utils.projects.invalidate()
     },
   })
 
   const openFolder = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
       if (!project) return
-      utils.projects.list.setData(undefined, (oldData) => {
-        if (!oldData) return [project]
+      utils.projects.listWithStatus.setData(undefined, (oldData) => {
+        const enriched = { ...project, inProgressCount: 0, unseenCount: 0 }
+        if (!oldData) return [enriched]
         const exists = oldData.some((p) => p.id === project.id)
         if (exists) {
           return oldData.map((p) =>
             p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p,
           )
         }
-        return [project, ...oldData]
+        return [enriched, ...oldData]
       })
       setSelectedProject({
         id: project.id,
@@ -267,7 +332,7 @@ export function ProjectsRail() {
       )
       if (sameAsCurrent) return
 
-      utils.projects.list.setData(undefined, (old) => {
+      utils.projects.listWithStatus.setData(undefined, (old) => {
         if (!old) return old
         const map = new Map(old.map((p) => [p.id, p]))
         return newOrderIds
@@ -281,6 +346,31 @@ export function ProjectsRail() {
   )
 
   const isAllActive = selectedProject == null
+
+  // projectId → has any chat awaiting an answer in this session.
+  const awaitingByProject = useMemo(() => {
+    const set = new Set<string>()
+    if (!allChats || chatsAwaitingAnswer.size === 0) return set
+    for (const c of allChats) {
+      if (chatsAwaitingAnswer.has(c.id)) {
+        set.add(c.projectId)
+      }
+    }
+    return set
+  }, [allChats, chatsAwaitingAnswer])
+
+  // projectId → has any chat currently streaming (live, renderer-side truth).
+  const liveInProgressByProject = useMemo(() => {
+    const set = new Set<string>()
+    if (!allChats || loadingSubChats.size === 0) return set
+    const loadingParentChatIds = new Set(loadingSubChats.values())
+    for (const c of allChats) {
+      if (loadingParentChatIds.has(c.id)) {
+        set.add(c.projectId)
+      }
+    }
+    return set
+  }, [allChats, loadingSubChats])
 
   return (
     <div
@@ -313,6 +403,11 @@ export function ProjectsRail() {
             dropTarget?.id === project.id && dropTarget.position === "before"
           const showAfter =
             dropTarget?.id === project.id && dropTarget.position === "after"
+          const inProgress =
+            (project.inProgressCount ?? 0) > 0 ||
+            liveInProgressByProject.has(project.id)
+          const unseen = (project.unseenCount ?? 0) > 0
+          const awaiting = awaitingByProject.has(project.id)
           return (
             <div
               key={project.id}
@@ -372,6 +467,11 @@ export function ProjectsRail() {
                   className="pointer-events-none absolute -bottom-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
                 />
               )}
+              <StatusDots
+                inProgress={inProgress}
+                unseen={unseen}
+                awaiting={awaiting}
+              />
             </div>
           )
         })}

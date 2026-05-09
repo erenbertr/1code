@@ -26,7 +26,7 @@ import { execWithShellEnv } from "../../git/shell-env"
 import { applyRollbackStash } from "../../git/stash"
 import { checkInternetConnection, checkOllamaStatus } from "../../ollama"
 import { terminalManager } from "../../terminal/manager"
-import { getExistingClaudeToken } from "../../claude-token"
+import { getValidExistingClaudeToken } from "../../claude-token"
 import { publicProcedure, router } from "../index"
 
 type WorktreeSetupFailurePayload = {
@@ -161,7 +161,7 @@ async function generateCommitMessageWithClaudeOAuth(
   fileNames: string[],
 ): Promise<string | null> {
   try {
-    const token = getExistingClaudeToken()
+    const token = await getValidExistingClaudeToken()
     if (!token) {
       return null
     }
@@ -308,6 +308,13 @@ Commit message:`
 export const chatsRouter = router({
   /**
    * List all non-archived chats (optionally filter by project)
+   *
+   * Each row is augmented with two computed flags so the sidebar can render
+   * per-chat status without depending on renderer-only state (which resets on
+   * app restart):
+   *  - inProgress: any sub-chat currently streaming (stream_id IS NOT NULL)
+   *  - isUnseen: not streaming AND latest activity (max of chat.updated_at
+   *    and any sub_chats.updated_at) is newer than chats.last_viewed_at.
    */
   list: publicProcedure
     .input(z.object({ projectId: z.string().optional() }))
@@ -317,12 +324,60 @@ export const chatsRouter = router({
       if (input.projectId) {
         conditions.push(eq(chats.projectId, input.projectId))
       }
-      return db
+      const rows = db
         .select()
         .from(chats)
         .where(and(...conditions))
         .orderBy(desc(chats.updatedAt))
         .all()
+
+      if (rows.length === 0) return []
+
+      const chatIds = rows.map((c) => c.id)
+      const subChatRows = db
+        .select({
+          chatId: subChats.chatId,
+          streamId: subChats.streamId,
+          updatedAt: subChats.updatedAt,
+        })
+        .from(subChats)
+        .where(inArray(subChats.chatId, chatIds))
+        .all()
+
+      const perChat = new Map<
+        string,
+        { hasStream: boolean; latestActivityMs: number }
+      >()
+      for (const sc of subChatRows) {
+        const cur = perChat.get(sc.chatId) ?? {
+          hasStream: false,
+          latestActivityMs: 0,
+        }
+        perChat.set(sc.chatId, {
+          hasStream: cur.hasStream || sc.streamId != null,
+          latestActivityMs: Math.max(
+            cur.latestActivityMs,
+            sc.updatedAt ? sc.updatedAt.getTime() : 0,
+          ),
+        })
+      }
+
+      return rows.map((c) => {
+        const status = perChat.get(c.id) ?? {
+          hasStream: false,
+          latestActivityMs: 0,
+        }
+        const chatActivityMs = Math.max(
+          status.latestActivityMs,
+          c.updatedAt ? c.updatedAt.getTime() : 0,
+        )
+        const lastViewedMs = c.lastViewedAt ? c.lastViewedAt.getTime() : 0
+        return {
+          ...c,
+          inProgress: status.hasStream,
+          isUnseen: !status.hasStream && chatActivityMs > lastViewedMs,
+        }
+      })
     }),
 
   /**
@@ -561,6 +616,23 @@ export const chatsRouter = router({
 
       console.log("[chats.create] returning:", response)
       return response
+    }),
+
+  /**
+   * Mark a chat as viewed by the current user. Stores wall-clock now so the
+   * project list can compute "unseen" badges by comparing against subChat
+   * activity timestamps.
+   */
+  markViewed: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      return db
+        .update(chats)
+        .set({ lastViewedAt: new Date() })
+        .where(eq(chats.id, input.id))
+        .returning()
+        .get()
     }),
 
   /**
