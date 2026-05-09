@@ -3,7 +3,18 @@
 import { useCallback, useMemo, useState } from "react"
 import type { DragEvent } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { IconFolder, IconPlus, IconLayoutGrid, IconSettings } from "@tabler/icons-react"
+import { toast } from "sonner"
+import {
+  IconExternalLink,
+  IconEyeOff,
+  IconFolder,
+  IconFolderOpen,
+  IconLayoutGrid,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+  IconTrash,
+} from "@tabler/icons-react"
 import { trpc } from "../../lib/trpc"
 import { cn } from "../../lib/utils"
 import { LoadingDot } from "../../components/ui/icons"
@@ -12,6 +23,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../../components/ui/tooltip"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "../../components/ui/context-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog"
 import {
   selectedProjectAtom,
   desktopViewAtom,
@@ -39,6 +67,7 @@ type ProjectRow = {
   gitRepo: string | null
   gitRemoteUrl: string | null
   gitProvider: string | null
+  showInRail?: boolean
   inProgressCount?: number
   unseenCount?: number
 }
@@ -176,7 +205,9 @@ export function ProjectsRail() {
 
   const sortedProjects = useMemo<ProjectRow[]>(() => {
     if (!projects) return []
-    return [...projects] as ProjectRow[]
+    // Hide projects flagged as not-in-rail. `undefined` is treated as visible
+    // so older rows behave correctly until the migration runs.
+    return (projects as ProjectRow[]).filter((p) => p.showInRail !== false)
   }, [projects])
 
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -184,11 +215,36 @@ export function ProjectsRail() {
     id: string
     position: "before" | "after"
   } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ProjectRow | null>(null)
 
   const reorder = trpc.projects.reorder.useMutation({
     onError: () => {
       utils.projects.invalidate()
     },
+  })
+
+  const setShowInRail = trpc.projects.setShowInRail.useMutation({
+    onSuccess: () => {
+      utils.projects.invalidate()
+    },
+    onError: (err) => toast.error(err.message || "Failed to update visibility"),
+  })
+
+  const refreshGitInfo = trpc.projects.refreshGitInfo.useMutation({
+    onSuccess: () => {
+      utils.projects.invalidate()
+      toast.success("Git info refreshed")
+    },
+    onError: (err) => toast.error(err.message || "Failed to refresh git info"),
+  })
+
+  const deleteProject = trpc.projects.delete.useMutation({
+    onSuccess: () => {
+      utils.projects.invalidate()
+      utils.chats?.list?.invalidate?.()
+      toast.success("Project removed")
+    },
+    onError: (err) => toast.error(err.message || "Failed to remove project"),
   })
 
   const openFolder = trpc.projects.openFolder.useMutation({
@@ -256,6 +312,33 @@ export function ProjectsRail() {
     setDesktopView("settings")
     setSidebarOpen(true)
   }, [setDesktopView, setSidebarOpen])
+
+  const handleRevealInFinder = useCallback(async (project: ProjectRow) => {
+    if (!window.desktopApi?.openFolder) {
+      toast.error("Folder reveal is not supported")
+      return
+    }
+    const result = await window.desktopApi.openFolder(project.path)
+    if (!result?.success) {
+      toast.error(result?.error || "Failed to open folder")
+    }
+  }, [])
+
+  const handleHideFromRail = useCallback(
+    (project: ProjectRow) => {
+      setShowInRail.mutate({ id: project.id, showInRail: false })
+      toast(`Hidden "${projectLabel(project)}" from rail`, {
+        description: "Visible on the projects page",
+      })
+    },
+    [setShowInRail],
+  )
+
+  const handleConfirmDelete = useCallback(() => {
+    if (!pendingDelete) return
+    deleteProject.mutate({ id: pendingDelete.id })
+    setPendingDelete(null)
+  }, [pendingDelete, deleteProject])
 
   const handleDragStart = useCallback(
     (e: DragEvent<HTMLDivElement>, id: string) => {
@@ -409,70 +492,110 @@ export function ProjectsRail() {
           const unseen = (project.unseenCount ?? 0) > 0
           const awaiting = awaitingByProject.has(project.id)
           return (
-            <div
-              key={project.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, project.id)}
-              onDragOver={(e) => handleDragOver(e, project.id)}
-              onDragLeave={(e) => handleDragLeave(e, project.id)}
-              onDragEnd={handleDragEnd}
-              onDrop={(e) => handleDrop(e, project.id)}
-              className={cn(
-                "relative cursor-grab active:cursor-grabbing",
-                isDragging && "opacity-40",
-              )}
-            >
-              {showBefore && (
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -top-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
-                />
-              )}
-              <RailButton
-                active={isActive}
-                onClick={() => handleSelectProject(project)}
-                tooltip={label}
-                ariaLabel={`Open project ${label}`}
-              >
-                {project.iconPath ? (
-                  <span
-                    className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md"
-                    style={{ backgroundColor: accent }}
-                  >
-                    <img
-                      src={`file://${project.iconPath}`}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      draggable={false}
+            <ContextMenu key={project.id}>
+              <ContextMenuTrigger asChild>
+                <div
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, project.id)}
+                  onDragOver={(e) => handleDragOver(e, project.id)}
+                  onDragLeave={(e) => handleDragLeave(e, project.id)}
+                  onDragEnd={handleDragEnd}
+                  onDrop={(e) => handleDrop(e, project.id)}
+                  className={cn(
+                    "relative cursor-grab active:cursor-grabbing",
+                    isDragging && "opacity-40",
+                  )}
+                >
+                  {showBefore && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -top-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
                     />
-                  </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide",
-                      "border border-foreground/10",
-                    )}
-                    style={{
-                      backgroundColor: accent ?? "var(--color-muted, rgba(255,255,255,0.04))",
-                      color: accent ? "#fff" : undefined,
-                    }}
+                  )}
+                  <RailButton
+                    active={isActive}
+                    onClick={() => handleSelectProject(project)}
+                    tooltip={label}
+                    ariaLabel={`Open project ${label}`}
                   >
-                    {initial || <IconFolder className="h-4 w-4" stroke={1.75} />}
-                  </span>
-                )}
-              </RailButton>
-              {showAfter && (
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -bottom-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
-                />
-              )}
-              <StatusDots
-                inProgress={inProgress}
-                unseen={unseen}
-                awaiting={awaiting}
-              />
-            </div>
+                    {project.iconPath ? (
+                      <span
+                        className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md"
+                        style={{ backgroundColor: accent }}
+                      >
+                        <img
+                          src={`file://${project.iconPath}`}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                        />
+                      </span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide",
+                          "border border-foreground/10",
+                        )}
+                        style={{
+                          backgroundColor: accent ?? "var(--color-muted, rgba(255,255,255,0.04))",
+                          color: accent ? "#fff" : undefined,
+                        }}
+                      >
+                        {initial || <IconFolder className="h-4 w-4" stroke={1.75} />}
+                      </span>
+                    )}
+                  </RailButton>
+                  {showAfter && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -bottom-[3px] left-1 right-1 h-[2px] rounded-full bg-foreground"
+                    />
+                  )}
+                  <StatusDots
+                    inProgress={inProgress}
+                    unseen={unseen}
+                    awaiting={awaiting}
+                  />
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => handleSelectProject(project)}>
+                  <IconExternalLink className="mr-2 h-4 w-4" />
+                  Open
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => {
+                    void handleRevealInFinder(project)
+                  }}
+                >
+                  <IconFolderOpen className="mr-2 h-4 w-4" />
+                  Reveal in Finder
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => refreshGitInfo.mutate({ id: project.id })}
+                >
+                  <IconRefresh className="mr-2 h-4 w-4" />
+                  Refresh git info
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => handleHideFromRail(project)}>
+                  <IconEyeOff className="mr-2 h-4 w-4" />
+                  Hide from rail
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={handleSelectAll}>
+                  <IconLayoutGrid className="mr-2 h-4 w-4" />
+                  Manage on projects page
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => setPendingDelete(project)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconTrash className="mr-2 h-4 w-4" />
+                  Remove project
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           )
         })}
 
@@ -495,6 +618,35 @@ export function ProjectsRail() {
           <IconSettings className="h-[18px] w-[18px]" stroke={1.75} />
         </RailButton>
       </div>
+
+      <AlertDialog
+        open={pendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{" "}
+              <span className="font-medium text-foreground">
+                {pendingDelete ? projectLabel(pendingDelete) : ""}
+              </span>{" "}
+              and all of its chats from 1Code. The folder on disk is not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -672,6 +672,23 @@ export const projectsRouter = router({
     }),
 
   /**
+   * Toggle whether a project appears in the leftmost rail.
+   * Hidden projects still show on the all-projects page so they remain
+   * accessible without cluttering the rail.
+   */
+  setShowInRail: publicProcedure
+    .input(z.object({ id: z.string(), showInRail: z.boolean() }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      return db
+        .update(projects)
+        .set({ showInRail: input.showInRail, updatedAt: new Date() })
+        .where(eq(projects.id, input.id))
+        .returning()
+        .get()
+    }),
+
+  /**
    * Remove custom icon for a project
    */
   removeIcon: publicProcedure

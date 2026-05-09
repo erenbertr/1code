@@ -26,6 +26,9 @@ export const projects = sqliteTable("projects", {
   accentColor: text("accent_color"),
   // User-defined ordering in the projects rail (lower = earlier). Default 0; ties fall back to updatedAt DESC.
   sortOrder: integer("sort_order").notNull().default(0),
+  // Whether this project appears in the leftmost rail. Hidden projects still
+  // show on the all-projects page. Default true so existing rows behave as before.
+  showInRail: integer("show_in_rail", { mode: "boolean" }).notNull().default(true),
 })
 
 export const projectsRelations = relations(projects, ({ many }) => ({

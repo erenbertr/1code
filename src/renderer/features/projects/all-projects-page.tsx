@@ -6,6 +6,8 @@ import { toast } from "sonner"
 import {
   IconDots,
   IconExternalLink,
+  IconEye,
+  IconEyeOff,
   IconFolderOpen,
   IconFolderPlus,
   IconPencil,
@@ -49,6 +51,7 @@ type Project = {
   gitRepo: string | null
   gitRemoteUrl: string | null
   gitProvider: string | null
+  showInRail?: boolean
   updatedAt?: Date | null
   inProgressCount?: number
   unseenCount?: number
@@ -107,6 +110,7 @@ function ProjectCard({
   onStartRename,
   onRequestDelete,
   onRefreshGit,
+  onToggleRailVisibility,
   isRenaming,
   draftName,
   onDraftNameChange,
@@ -119,12 +123,15 @@ function ProjectCard({
   onStartRename: () => void
   onRequestDelete: () => void
   onRefreshGit: () => void
+  onToggleRailVisibility: () => void
   isRenaming: boolean
   draftName: string
   onDraftNameChange: (value: string) => void
   onCommitRename: () => void
   onCancelRename: () => void
 }) {
+  // undefined → treat as visible (older rows pre-migration)
+  const isHiddenFromRail = project.showInRail === false
   const renameInputRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -182,6 +189,36 @@ function ProjectCard({
           unseenCount={project.unseenCount ?? 0}
         />
 
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleRailVisibility()
+          }}
+          aria-label={
+            isHiddenFromRail
+              ? "Show in left rail"
+              : "Hide from left rail"
+          }
+          title={
+            isHiddenFromRail
+              ? "Show in left rail"
+              : "Hide from left rail"
+          }
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+            isHiddenFromRail
+              ? "text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground"
+              : "text-foreground/80 hover:bg-foreground/[0.06] hover:text-foreground",
+          )}
+        >
+          {isHiddenFromRail ? (
+            <IconEyeOff className="h-4 w-4" />
+          ) : (
+            <IconEye className="h-4 w-4" />
+          )}
+        </button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -211,6 +248,19 @@ function ProjectCard({
             <DropdownMenuItem onSelect={onRefreshGit}>
               <IconRefresh className="mr-2 h-4 w-4" />
               Refresh git info
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onToggleRailVisibility}>
+              {isHiddenFromRail ? (
+                <>
+                  <IconEye className="mr-2 h-4 w-4" />
+                  Show in left rail
+                </>
+              ) : (
+                <>
+                  <IconEyeOff className="mr-2 h-4 w-4" />
+                  Hide from left rail
+                </>
+              )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -316,6 +366,13 @@ export function AllProjectsPage() {
       toast.success("Git info refreshed")
     },
     onError: (err) => toast.error(err.message || "Failed to refresh git info"),
+  })
+
+  const setShowInRail = trpc.projects.setShowInRail.useMutation({
+    onSuccess: () => {
+      utils.projects.invalidate()
+    },
+    onError: (err) => toast.error(err.message || "Failed to update visibility"),
   })
 
   const handleOpenProject = useCallback(
@@ -455,6 +512,12 @@ export function AllProjectsPage() {
                 onStartRename={() => handleStartRename(project)}
                 onRequestDelete={() => setPendingDelete(project)}
                 onRefreshGit={() => refreshGitInfo.mutate({ id: project.id })}
+                onToggleRailVisibility={() =>
+                  setShowInRail.mutate({
+                    id: project.id,
+                    showInRail: project.showInRail === false,
+                  })
+                }
                 isRenaming={renamingId === project.id}
                 draftName={renamingId === project.id ? draftName : project.name}
                 onDraftNameChange={setDraftName}
