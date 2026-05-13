@@ -186,18 +186,30 @@ export class RemoteChatTransport implements ChatTransport<UIMessage> {
       }
     })
 
-    // Handle abort
-    if (abortSignal) {
-      abortSignal.addEventListener("abort", () => {
-        streamDone = true
-        cleanup()
-      })
-    }
-
     const cleanup = () => {
       cleanupChunk?.()
       cleanupDone?.()
       cleanupError?.()
+      cleanupChunk = null
+      cleanupDone = null
+      cleanupError = null
+      pendingChunks = []
+      if (abortSignal && abortHandler) {
+        abortSignal.removeEventListener("abort", abortHandler)
+        abortHandler = null
+      }
+    }
+
+    // Handle abort — keep a handle so we can remove the listener on natural
+    // stream end. Without removal, a long-lived AbortSignal accumulates one
+    // listener per request (each closure pinning chunk buffers + listeners).
+    let abortHandler: (() => void) | null = null
+    if (abortSignal) {
+      abortHandler = () => {
+        streamDone = true
+        cleanup()
+      }
+      abortSignal.addEventListener("abort", abortHandler)
     }
 
     return new ReadableStream({
