@@ -63,6 +63,16 @@ export const suppressInputFocusAtom = atom<boolean>(false)
 // When set, active-chat picks it up, calls editorRef.insertMention(), and resets to null
 export const pendingMentionAtom = atom<FileMentionOption | null>(null)
 
+// Maximum number of sub-chat tabs kept mounted at once.
+//
+// All non-active tabs are rendered with opacity:0 so tab switching is instant.
+// Each mounted tab holds its full message state, tool results, etc. in memory.
+// Under memory pressure the memory-monitor drops this to 1 (active tab only)
+// so finished background tabs release their state. When pressure clears the
+// limit goes back to the default.
+export const DEFAULT_MAX_MOUNTED_TABS = 3
+export const maxMountedTabsAtom = atom<number>(DEFAULT_MAX_MOUNTED_TABS)
+
 // Preview paths storage - stores all preview paths keyed by chatId
 const previewPathsStorageAtom = atomWithStorage<Record<string, string>>(
   "agents:previewPaths",

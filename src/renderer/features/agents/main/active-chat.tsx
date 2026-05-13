@@ -141,6 +141,7 @@ import {
   suppressInputFocusAtom,
   undoStackAtom,
   workspaceDiffCacheAtomFamily,
+  maxMountedTabsAtom,
   type AgentMode,
   type SelectedCommit
 } from "../atoms"
@@ -3848,8 +3849,10 @@ export function ChatView({
 
   // Workspace isolation: limit mounted tabs to prevent memory growth
   // CRITICAL: Filter by workspace to prevent rendering sub-chats from other workspaces
-  // Always render: active + pinned, then fill with recent up to limit
-  const MAX_MOUNTED_TABS = 3
+  // Always render: active + pinned, then fill with recent up to limit.
+  // Limit is reactive — memory-monitor drops it to 1 under heap pressure so
+  // background tabs release their full state instead of dragging us to OOM.
+  const MAX_MOUNTED_TABS = useAtomValue(maxMountedTabsAtom)
   const tabsToRender = useMemo(() => {
     if (!activeSubChatId) return []
 
@@ -3915,7 +3918,7 @@ export function ChatView({
     }
 
     return result
-  }, [activeSubChatId, splitPaneIds, pinnedSubChatIds, openSubChatIds, allSubChats, agentSubChats])
+  }, [activeSubChatId, splitPaneIds, pinnedSubChatIds, openSubChatIds, allSubChats, agentSubChats, MAX_MOUNTED_TABS])
 
   // Prune chat instances from previous workspace when switching parent chat.
   // Prevents cross-workspace memory accumulation.
