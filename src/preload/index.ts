@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld("desktopApi", {
   getVersion: () => ipcRenderer.invoke("app:version"),
   isPackaged: () => ipcRenderer.invoke("app:isPackaged"),
 
+  // Dev memory monitor → appends to userData/mem-trace.ndjson so the trace
+  // survives a renderer crash.
+  appendMemLog: (line: string) =>
+    ipcRenderer.invoke("debug:append-mem-log", line) as Promise<boolean>,
+
   // Auto-update methods
   checkForUpdates: (force?: boolean) => ipcRenderer.invoke("update:check", force),
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
@@ -304,6 +309,8 @@ export interface DesktopApi {
   arch: string
   getVersion: () => Promise<string>
   isPackaged: () => Promise<boolean>
+  // Dev memory trace persistence (survives renderer crashes)
+  appendMemLog: (line: string) => Promise<boolean>
   // Auto-update
   checkForUpdates: (force?: boolean) => Promise<UpdateInfo | null>
   downloadUpdate: () => Promise<boolean>

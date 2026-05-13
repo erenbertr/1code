@@ -48,6 +48,31 @@ function registerIpcHandlers(): void {
   ipcMain.handle("app:version", () => app.getVersion())
   ipcMain.handle("app:isPackaged", () => app.isPackaged)
 
+  // Dev-only: append a line to a memory-trace file so memory samples survive
+  // a renderer crash (the devtools console is wiped on reload). Read with
+  // `tail -50 ~/Library/Application\ Support/Agents\ Dev/mem-trace.ndjson`.
+  ipcMain.handle("debug:append-mem-log", (_event, line: string) => {
+    try {
+      const userData = app.getPath("userData")
+      mkdirSync(userData, { recursive: true })
+      const path = join(userData, "mem-trace.ndjson")
+      // Cap the file at ~1MB by truncating when it gets large.
+      try {
+        const stat = require("fs").statSync(path)
+        if (stat.size > 1_000_000) {
+          writeFileSync(path, "")
+        }
+      } catch {
+        // File doesn't exist yet — fine.
+      }
+      require("fs").appendFileSync(path, line + "\n")
+      return true
+    } catch (error) {
+      console.error("[Main] Failed to append mem-trace:", error)
+      return false
+    }
+  })
+
   // Windows: Frame preference persistence
   ipcMain.handle("window:set-frame-preference", (_event, useNativeFrame: boolean) => {
     try {

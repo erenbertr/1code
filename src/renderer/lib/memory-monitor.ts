@@ -5,10 +5,12 @@
 // drifts toward that cap and aborts (SIGTRAP / EXC_BREAKPOINT).
 //
 // This monitor:
-//   1. Logs `performance.memory` once a minute so leak trends are visible.
-//   2. When used heap rises past HIGH_PRESSURE_BYTES, reduces the mounted
-//      sub-chat tab limit to 1 — only the active tab stays in memory. The
-//      eviction effect in active-chat.tsx releases the others.
+//   1. Logs `performance.memory` every 10s to console AND to a persistent
+//      file in userData so the trace survives a renderer crash (devtools
+//      console is wiped on reload). Read with:
+//        tail -50 ~/Library/Application\ Support/Agents\ Dev/mem-trace.ndjson
+//   2. When used heap rises past HIGH_PRESSURE_BYTES, drops the mounted
+//      sub-chat tab limit to 1 — only the active tab stays in memory.
 //   3. When pressure clears (back under LOW_PRESSURE_BYTES), restores the
 //      default tab limit so tab switching is instant again.
 //
@@ -28,11 +30,16 @@ type PerformanceWithMemory = Performance & {
   }
 }
 
-const INTERVAL_MS = 60_000
+const INTERVAL_MS = 10_000 // 10s — tight enough to catch streaming spikes
 const MB = 1024 * 1024
-const HIGH_PRESSURE_BYTES = 2.5 * 1024 * MB // 2.5GB
-const LOW_PRESSURE_BYTES = 1.5 * 1024 * MB // 1.5GB
+// Trigger eviction earlier. V8 cap is ~4GB; the closer we get the less time
+// we have to react. 1.8GB leaves ~2.2GB of headroom for streaming bursts.
+const HIGH_PRESSURE_BYTES = 1.8 * 1024 * MB
+const LOW_PRESSURE_BYTES = 1.2 * 1024 * MB
 const EVICTED_TAB_LIMIT = 1
+
+// A separate, even earlier warning so we record context before things go bad.
+const WARNING_BYTES = 1.2 * 1024 * MB
 
 function format(bytes: number | undefined): string {
   if (typeof bytes !== "number") return "?"
@@ -42,8 +49,27 @@ function format(bytes: number | undefined): string {
 let started = false
 let baseline: number | null = null
 let evicting = false
+let warned = false
+let peak = 0
+
+function persist(line: string): void {
+  // Fire and forget — preload exposes this; if not, skip silently.
+  try {
+    window.desktopApi?.appendMemLog?.(line).catch(() => {})
+  } catch {
+    // ignore
+  }
+}
 
 function applyMemoryPressure(usedBytes: number): void {
+  if (!warned && usedBytes > WARNING_BYTES) {
+    warned = true
+    console.warn(
+      `[mem] approaching pressure threshold (used=${format(usedBytes)}, ` +
+        `evict at ${format(HIGH_PRESSURE_BYTES)})`,
+    )
+  }
+
   if (!evicting && usedBytes > HIGH_PRESSURE_BYTES) {
     evicting = true
     appStore.set(maxMountedTabsAtom, EVICTED_TAB_LIMIT)
@@ -56,6 +82,7 @@ function applyMemoryPressure(usedBytes: number): void {
 
   if (evicting && usedBytes < LOW_PRESSURE_BYTES) {
     evicting = false
+    warned = false
     appStore.set(maxMountedTabsAtom, DEFAULT_MAX_MOUNTED_TABS)
     console.log(
       `[mem] pressure cleared (used=${format(usedBytes)}) → restoring ` +
@@ -79,11 +106,24 @@ export function startMemoryMonitor(): void {
     const mem = perf.memory
     if (!mem) return
     if (baseline === null) baseline = mem.usedJSHeapSize
+    if (mem.usedJSHeapSize > peak) peak = mem.usedJSHeapSize
     const deltaMb = ((mem.usedJSHeapSize - baseline) / MB).toFixed(1)
+    const peakMb = (peak / MB).toFixed(1)
+
+    const line = JSON.stringify({
+      ts: Date.now(),
+      used: mem.usedJSHeapSize,
+      total: mem.totalJSHeapSize,
+      limit: mem.jsHeapSizeLimit,
+      peak,
+      deltaFromBaseline: mem.usedJSHeapSize - baseline,
+      evicting,
+    })
     console.log(
       `[mem] used=${format(mem.usedJSHeapSize)} total=${format(mem.totalJSHeapSize)} ` +
-        `limit=${format(mem.jsHeapSizeLimit)} Δ=${deltaMb}MB`,
+        `limit=${format(mem.jsHeapSizeLimit)} Δ=${deltaMb}MB peak=${peakMb}MB`,
     )
+    persist(line)
 
     applyMemoryPressure(mem.usedJSHeapSize)
   }

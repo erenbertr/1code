@@ -30,6 +30,9 @@ export interface DesktopApi {
   arch: string
   getVersion: () => Promise<string>
 
+  // Dev memory trace persistence (survives renderer crashes)
+  appendMemLog: (line: string) => Promise<boolean>
+
   // Auto-update
   checkForUpdates: (force?: boolean) => Promise<UpdateInfo | null>
   downloadUpdate: () => Promise<boolean>
