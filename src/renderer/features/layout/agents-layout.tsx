@@ -78,12 +78,15 @@ export function AgentsLayout() {
     // Get initial fullscreen state
     window.desktopApi.windowIsFullscreen().then(setIsFullscreen)
 
-    // In dev mode, HMR breaks IPC event subscriptions, so we poll instead
+    // In dev mode, HMR breaks IPC event subscriptions, so we poll instead.
+    // 300ms was generating thousands of IPC calls per hour and contributing
+    // to renderer memory pressure (renderer was crashing every 1–2h on long
+    // dev sessions). Fullscreen state never changes that fast — 1s is plenty.
     const isDev = import.meta.env.DEV
     if (isDev) {
       const interval = setInterval(() => {
         window.desktopApi?.windowIsFullscreen?.().then(setIsFullscreen)
-      }, 300)
+      }, 1000)
       return () => clearInterval(interval)
     }
 

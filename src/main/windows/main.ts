@@ -741,7 +741,13 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
       partition: "persist:main", // Use persistent session for cookies
     },
   })
-  let attemptedRendererRecovery = false
+  // Track recent recovery attempts so we can keep healing the window after
+  // intermittent renderer crashes (V8 OOM / SIGTRAP). The previous one-shot
+  // behavior left the window dead on the second crash, which felt like the
+  // whole app had failed and forced a manual restart.
+  const rendererRecoveryAttempts: number[] = []
+  const RENDERER_RECOVERY_WINDOW_MS = 60_000
+  const RENDERER_RECOVERY_MAX_ATTEMPTS = 5
 
   // Register window with manager and get stable ID for localStorage namespacing
   const stableWindowId = windowManager.register(window)
@@ -841,14 +847,45 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("[Main] Renderer process gone in window", window.id, details)
 
-    if (attemptedRendererRecovery || window.isDestroyed()) {
+    if (window.isDestroyed()) {
       return
     }
 
-    attemptedRendererRecovery = true
+    // Reason "clean-exit" / "killed" means the renderer exited intentionally
+    // (e.g. window close, navigation). Don't try to recover those.
+    if (details.reason === "clean-exit" || details.reason === "killed") {
+      return
+    }
+
+    const now = Date.now()
+    while (
+      rendererRecoveryAttempts.length > 0 &&
+      now - rendererRecoveryAttempts[0]! > RENDERER_RECOVERY_WINDOW_MS
+    ) {
+      rendererRecoveryAttempts.shift()
+    }
+
+    if (rendererRecoveryAttempts.length >= RENDERER_RECOVERY_MAX_ATTEMPTS) {
+      console.error(
+        "[Main] Renderer crashed",
+        rendererRecoveryAttempts.length,
+        "times within",
+        RENDERER_RECOVERY_WINDOW_MS / 1000,
+        "s in window",
+        window.id,
+        "- giving up on auto-recovery",
+      )
+      return
+    }
+
+    rendererRecoveryAttempts.push(now)
     setTimeout(() => {
       if (!window.isDestroyed()) {
-        console.log("[Main] Attempting one-shot renderer recovery in window", window.id)
+        console.log(
+          "[Main] Recovering renderer in window",
+          window.id,
+          `(attempt ${rendererRecoveryAttempts.length}/${RENDERER_RECOVERY_MAX_ATTEMPTS})`,
+        )
         window.webContents.reloadIgnoringCache()
       }
     }, 150)
@@ -921,7 +958,9 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
 
   // Log page load - traffic light visibility is managed by the renderer
   window.webContents.on("did-finish-load", () => {
-    attemptedRendererRecovery = false
+    // Page came back alive — clear the rapid-recovery counter so we don't
+    // preemptively give up the next time a stable session crashes hours later.
+    rendererRecoveryAttempts.length = 0
     console.log("[Main] Page finished loading in window", window.id)
   })
   window.webContents.on(

@@ -5,6 +5,12 @@ import tailwindcss from "tailwindcss"
 import autoprefixer from "autoprefixer"
 
 const isDev = process.env.NODE_ENV !== "production"
+// Why-Did-You-Render wraps every JSX element creation when used as the
+// jsxImportSource. Even when WDYR is not initialized at runtime, the wrapped
+// JSX runtime adds per-render overhead. Enable explicitly via VITE_WDYR=1 to
+// debug re-renders — leaving it on by default in dev was contributing to
+// long-session memory pressure.
+const wdyrEnabled = isDev && process.env.VITE_WDYR === "1"
 
 export default defineConfig({
   main: {
@@ -52,8 +58,10 @@ export default defineConfig({
   renderer: {
     plugins: [
       react({
-        // In dev mode, use WDYR as JSX import source to track ALL component re-renders
-        jsxImportSource: isDev
+        // Only route JSX through WDYR when explicitly enabled (VITE_WDYR=1).
+        // Without this opt-in, dev sessions get a non-trivial overhead on
+        // every render of every component.
+        jsxImportSource: wdyrEnabled
           ? "@welldone-software/why-did-you-render"
           : undefined,
       }),

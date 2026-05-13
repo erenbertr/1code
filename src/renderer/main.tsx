@@ -13,9 +13,13 @@ import { App } from "./App"
 import { RenderErrorBoundary } from "./components/ui/error-boundary"
 import "./styles/globals.css"
 import { preloadDiffHighlighter } from "./lib/themes/diff-view-highlighter"
+import { startMemoryMonitor } from "./lib/memory-monitor"
 
 // Preload shiki highlighter for diff view (prevents delay when opening diff sidebar)
 preloadDiffHighlighter()
+
+// Log renderer heap usage every minute in dev so leak trends are visible.
+startMemoryMonitor()
 
 // Suppress ResizeObserver loop error - this is a non-fatal browser warning
 // that can occur when layout changes trigger observation callbacks
